@@ -209,17 +209,39 @@ ML является ядром сервиса. Диффузионная моде
 **Диаграмма 1. Что происходит в системе**
 
 ```mermaid
-graph LR
-    User[Пользователь] --> UI[Веб-интерфейс]
-    UI --> API[API Gateway]
-    API --> Task[Создание задачи]
-    Task --> Gen[Генерация изображений по промптам]
-    Gen --> Eval[Оценка качества и фильтрация]
-    Eval --> Dataset[Сборка мультимодального датасета]
-    Dataset --> Train[Дообучение diffusion-модели]
-    Train --> Report[Отчёт, метрики, checkpoint]
-    Report --> UI
-    UI --> User
+graph TD
+    subgraph Frontend
+        UI[Веб-интерфейс]
+    end
+
+    subgraph Backend
+        API[API Gateway]
+        Task[(Task Metadata)]
+        Report[(Отчёт и метрики)]
+    end
+
+    subgraph ML Pipeline
+        Gen[Генерация изображений по промптам]
+        Eval[Оценка качества и фильтрация]
+        Dataset[Сборка мультимодального датасета]
+        Train[Дообучение diffusion-модели]
+    end
+
+    subgraph External
+        User[Пользователь]
+    end
+
+    User -->|создаёт задачу| UI
+    UI -->|HTTP запрос| API
+    API -->|создаёт запись о задаче| Task
+    API -->|запускает pipeline| Gen
+    Gen -->|сгенерированные пары text-image| Eval
+    Eval -->|отфильтрованные данные| Dataset
+    Dataset -->|train-ready датасет| Train
+    Train -->|checkpoint, метрики| Report
+    API -->|получает статус и результаты| Report
+    API -->|JSON ответ| UI
+    UI -->|показывает отчёт| User
 ```
 
 ### 5.2 Основные сценарии работы
