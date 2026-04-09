@@ -1,0 +1,9 @@
+[
+  {
+    "id": 80,
+    "caption": "farm tractor is moving on the field , cultivating land",
+    "true_label": "animals_nature",
+    "predicted_label": "people_entertainment",
+    "predicted_confidence": 0.7178644749203194
+  }
+]

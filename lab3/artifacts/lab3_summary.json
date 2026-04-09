@@ -1,0 +1,19 @@
+{
+  "dataset_size": 100,
+  "split_counts": {
+    "train": 72,
+    "val": 14,
+    "test": 14
+  },
+  "label_counts": {
+    "places_objects": 39,
+    "people_entertainment": 30,
+    "sports": 8,
+    "animals_nature": 23
+  },
+  "best_experiment": "char_ngram_balanced",
+  "best_validation_macro_f1": 1.0,
+  "best_test_macro_f1": 0.9222222222222223,
+  "best_test_accuracy": 0.9285714285714286,
+  "final_model_latency_ms": 0.12935000008188322
+}
