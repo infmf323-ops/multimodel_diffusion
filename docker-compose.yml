@@ -1,0 +1,58 @@
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    container_name: multimodal-postgres
+    environment:
+      POSTGRES_DB: multimodal_diffusion
+      POSTGRES_USER: multimodal
+      POSTGRES_PASSWORD: multimodal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U multimodal -d multimodal_diffusion"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  inference-service:
+    build:
+      context: .
+      dockerfile: inference_service/Dockerfile
+    container_name: multimodal-inference
+    environment:
+      DATABASE_URL: postgresql://multimodal:multimodal@postgres:5432/multimodal_diffusion
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: multimodal-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - inference-service
+
+  prometheus:
+    build:
+      context: .
+      dockerfile: monitoring/Dockerfile
+    container_name: multimodal-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+    depends_on:
+      - inference-service
+
+volumes:
+  postgres_data:
+  prometheus_data:

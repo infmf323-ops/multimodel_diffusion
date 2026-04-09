@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multimodal Diffusion ML Service</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">Lab 4 Demo</p>
+      <h1>Multimodal Diffusion Caption Router</h1>
+      <p class="lead">
+        UI для демонстрации финальной ML-модели из ЛР3, инференс-сервиса,
+        истории запросов, experiment logs и мониторинга.
+      </p>
+      <div class="badges">
+        <span id="health-badge" class="badge muted">Проверка health...</span>
+        <span class="badge">Frontend: :3000</span>
+        <span class="badge">API: :8000</span>
+        <span class="badge">Prometheus: :9090</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Предсказание</h2>
+        <label for="caption-input">Caption</label>
+        <textarea id="caption-input" rows="5">american football player on the field during joint training camp .</textarea>
+        <button id="predict-btn">Отправить в инференс</button>
+        <pre id="prediction-output" class="output">Ожидание запроса...</pre>
+      </article>
+
+      <article class="card">
+        <h2>Сводка экспериментов ЛР3</h2>
+        <pre id="summary-output" class="output">Загрузка...</pre>
+      </article>
+
+      <article class="card full">
+        <div class="card-header">
+          <h2>История запросов</h2>
+          <button id="refresh-history-btn" class="secondary">Обновить</button>
+        </div>
+        <div id="history-output" class="table-wrap">Загрузка...</div>
+      </article>
+
+      <article class="card full">
+        <div class="card-header">
+          <h2>Последние эксперименты</h2>
+          <button id="refresh-experiments-btn" class="secondary">Обновить</button>
+        </div>
+        <div id="experiments-output" class="table-wrap">Загрузка...</div>
+      </article>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
