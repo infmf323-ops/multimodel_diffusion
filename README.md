@@ -10,6 +10,7 @@
 
 - Docker `29+`
 - Docker Compose `v2+`
+- Для ускоренного diffusion inference: NVIDIA GPU + NVIDIA Container Toolkit. Без GPU сервис может работать на CPU, но генерация будет заметно медленнее.
 
 ### Команда запуска
 
@@ -28,15 +29,25 @@ docker compose up --build
 
 ### Что поднимается
 
-- `frontend` — веб-интерфейс для отправки caption и просмотра результатов;
-- `inference-service` — FastAPI-сервис для демонстрационного inference API, мониторинга и просмотра артефактов synthetic/LoRA pipeline;
+- `frontend` — веб-интерфейс для генерации изображений через LoRA adapter и просмотра результатов;
+- `inference-service` — FastAPI-сервис с endpoint `POST /generate`, который загружает `segmind/tiny-sd` и финальный LoRA adapter `seed_plus_synthetic` из ЛР3;
 - `postgres` — база данных для хранения истории предсказаний;
 - `minio` — S3-compatible object storage для изображений, manifest, preview и ссылок на model artifact;
 - `prometheus` — сбор метрик `/metrics`.
 
 ## Примеры использования
 
-### Ручной запрос к API
+### Ручной запрос к основному diffusion API
+
+```bash
+curl -X POST "http://localhost:8000/generate" \
+  -H "Content-Type: application/json" \
+  -d "{\"prompt\": \"a cozy modern living room with a fireplace and warm evening light\", \"num_inference_steps\": 12, \"width\": 256, \"height\": 256}"
+```
+
+Ответ содержит `image_base64`, `seed`, `latency_ms`, `base_model_checkpoint`, `lora_adapter_path` и путь к сохранённому PNG внутри контейнера.
+
+### Demo-запрос к caption-router endpoint
 
 ```bash
 curl -X POST "http://localhost:8000/predict" \
@@ -48,6 +59,7 @@ curl -X POST "http://localhost:8000/predict" \
 
 ```bash
 curl "http://localhost:8000/history?limit=10"
+curl "http://localhost:8000/generations/history?limit=10"
 ```
 
 ### Просмотр summary экспериментов ЛР3
@@ -1097,21 +1109,26 @@ Validation и test не смешиваются с synthetic data, чтобы ч�
 
 ## Шаг 1. Разработка инференс-модуля
 
-В рамках ЛР4 разработан отдельный FastAPI-микросервис для демонстрации runtime-части системы: запросы, история, мониторинг, доступ к synthetic dataset metadata и проверка, что ML-компоненты можно запускать в контейнерном окружении. После уточнения ЛР3 целевой финальный артефакт проекта — LoRA adapter `seed_plus_synthetic`, а лёгкий caption-router endpoint оставлен как demo serving-компонент для быстрых запросов и мониторинга без загрузки тяжёлой diffusion-модели в контейнер.
+В рамках ЛР4 разработан FastAPI-микросервис для inference по финальному артефакту ЛР3. Основной endpoint `POST /generate` загружает базовую diffusion-модель `segmind/tiny-sd`, подключает LoRA adapter `seed_plus_synthetic` из `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/runs/seed_plus_synthetic/adapters/` и генерирует изображение по текстовому prompt. Модель загружается лениво: контейнер стартует быстро, а checkpoint поднимается при первом запросе генерации.
 
 ### Что реализовано
 
 - `FastAPI`-сервис в папке `inference_service/`
-- demo endpoint с лёгкой caption-router моделью из `lab3/artifacts/models/final_caption_router_model.npz`
+- основной endpoint `POST /generate` для генерации изображения через `segmind/tiny-sd + seed_plus_synthetic LoRA`
+- сохранение результата генерации в `/app/generated_outputs`
+- логирование generation requests в PostgreSQL в таблицу `generation_requests`
+- endpoint `GET /generations/history`
+- demo endpoint `POST /predict` с лёгкой caption-router моделью оставлен как дополнительный быстрый endpoint
 - просмотр synthetic dataset runs/samples, синхронизированных с PostgreSQL и MinIO
-- целевые LoRA-артефакты ЛР3 сохранены отдельно в `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/`
 - endpoint `POST /predict`
 - endpoint `GET /model/info`
 - endpoint `GET /history`
 
 ### Назначение инференс-модуля
 
-Demo-модель `POST /predict` классифицирует caption по доменным корзинам:
+Основное назначение inference-модуля теперь соответствует исходной задаче проекта: пользователь отправляет prompt, сервис генерирует изображение через diffusion-модель, дообученную LoRA adapter из ЛР3, сохраняет результат и пишет latency/metadata в базу.
+
+Demo-модель `POST /predict` дополнительно классифицирует caption по доменным корзинам:
 
 - `sports`
 - `people_entertainment`
@@ -1129,23 +1146,24 @@ Demo-модель `POST /predict` классифицирует caption по до
 В итоговой системе объединены следующие компоненты:
 
 - `frontend` — пользовательский интерфейс;
-- `inference-service` — предсказания;
-- `postgres` — хранение истории запросов и предсказаний;
+- `inference-service` — генерация изображений через финальный LoRA adapter и demo-предсказания;
+- `postgres` — хранение истории HTTP-запросов, `/predict` предсказаний и `/generate` генераций;
 - `minio` — S3-compatible storage для diffusion dataset artifacts;
-- `lab3 artifacts` — интегрированы как experiment registry и model registry;
+- `lora_experiment artifacts` — интегрированы как model registry для финального LoRA adapter;
+- `lab3 artifacts` — оставлены для demo caption-router endpoint и истории предыдущих экспериментов;
 - `prometheus` — сбор метрик мониторинга.
 
 ### Что изменилось относительно архитектуры ЛР1-ЛР2
 
-На этапе ЛР1-ЛР2 проектировалась полная production-архитектура для генерации синтетических данных и fine-tuning diffusion-модели, включая очередь, генераторы и training workers. В ЛР4 для демонстрации развёрнут **служебный online-срез** системы:
+На этапе ЛР1-ЛР2 проектировалась полная production-архитектура для генерации синтетических данных и fine-tuning diffusion-модели, включая очередь, генераторы и training workers. В ЛР4 развёрнут **online-срез** системы:
 
 - пользовательский интерфейс;
-- inference API;
+- inference API с `POST /generate` для финального diffusion LoRA adapter;
 - база истории запросов;
 - monitoring;
 - доступ к experiment logs и итоговой модели ЛР3.
 
-То есть финальная demo-архитектура сосредоточена именно на runtime-части сервиса, а offline-конвейер генерации и обучения остаётся отражённым в документации ЛР1-ЛР3.
+Offline-конвейер генерации synthetic dataset и обучения LoRA остаётся отдельным экспериментальным контуром из ЛР3, а ЛР4 показывает, как его финальный adapter подключается к контейнерному inference API.
 
 ### Финальная архитектура ЛР4
 
@@ -1179,15 +1197,18 @@ Demo-модель `POST /predict` классифицирует caption по до
 - `http_request_duration_seconds`
 - `ml_predictions_total`
 - `ml_prediction_latency_seconds`
+- `ml_generations_total`
+- `ml_generation_latency_seconds`
 - `db_health_status`
 - `model_loaded_status`
+- `diffusion_model_loaded_status`
 
 ### Метрики, связанные с ЛР2
 
 Из ЛР2 в мониторинг перенесены ключевые нефункциональные показатели:
 
 - количество запросов;
-- latency инференса;
+- latency инференса и diffusion-генерации;
 - доступность базы;
 - устойчивость сервиса при росте числа запросов.
 
@@ -1206,6 +1227,7 @@ Demo-модель `POST /predict` классифицирует caption по до
 
 - `docker-compose.yml` для объединения сервисов;
 - `db/init/001_predictions.sql` для инициализации таблицы;
+- `db/init/002_synthetic_dataset.sql` для synthetic dataset metadata и истории LoRA generation requests;
 - `.dockerignore` для уменьшения build context.
 
 ### Docker Compose
@@ -1215,8 +1237,9 @@ Demo-модель `POST /predict` классифицирует caption по до
 - зависимости между сервисами;
 - переменные окружения;
 - network-взаимодействие;
-- volumes для PostgreSQL и Prometheus;
+- volumes для PostgreSQL, Prometheus, Hugging Face cache и generated outputs;
 - volume для MinIO object storage;
+- GPU-доступ для `inference-service` через `gpus: all`;
 - healthcheck для БД.
 
 ### Команда запуска
@@ -1241,19 +1264,20 @@ docker compose up --build
 - тестовые запросы: `demo/sample_requests.json`
 - демонстрационный synthetic dataset: `synthetic_dataset/synthetic_manifest.csv`
 - веб-интерфейс: `frontend/`
-- инференс-сервис: `inference_service/`
-- целевые LoRA-артефакты ЛР3: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/`
+- инференс-сервис с endpoint `POST /generate`: `inference_service/`
+- целевой LoRA adapter ЛР3: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/runs/seed_plus_synthetic/adapters/`
 - demo caption-router артефакты для ЛР4: `lab3/artifacts/`
 
 ### Что показывать на демонстрации
 
 1. Запуск проекта через `docker compose up --build`
 2. Открытие UI на `localhost:3000`
-3. Отправка caption в инференс-сервис
-4. Получение предсказанного `domain_tag`
-5. Просмотр истории запросов
-6. Просмотр `experiments/summary`
-7. Проверка `/metrics` и страницы Prometheus
+3. Отправка prompt в форму LoRA generation
+4. Получение изображения, сгенерированного через `segmind/tiny-sd + seed_plus_synthetic LoRA`
+5. Просмотр истории генераций через `GET /generations/history`
+6. Дополнительно: отправка caption в demo endpoint `/predict`
+7. Просмотр `experiments/summary`
+8. Проверка `/metrics` и страницы Prometheus
 
 ### Финальная документация
 
@@ -1269,18 +1293,19 @@ docker compose up --build
 
 ### Как загрузка модели влияет на время старта сервиса? Как можно его уменьшить?
 
-- модель загружается при старте контейнера `inference-service`, поэтому увеличивает startup time;
-- уменьшить это можно за счёт компактной модели, preload при startup и уменьшения размера артефактов.
+- caption-router модель загружается при старте контейнера быстро, а diffusion-модель `segmind/tiny-sd + LoRA` загружается лениво при первом `POST /generate`;
+- это уменьшает startup time контейнера, но первый запрос генерации будет дольше;
+- ускорить можно через Hugging Face cache volume, preload/warmup после старта, GPU, уменьшение `num_inference_steps` и использование LoRA adapter вместо полного fine-tuned checkpoint.
 
 ### Что произойдёт, если модель вернёт предсказание с ошибкой? Как это отразится на пользователе?
 
-- пользователь увидит неверный `domain_tag`;
-- в нашем сервисе это отразится как неправильная маршрутизация caption;
-- ошибка фиксируется в истории запросов, после чего её можно анализировать offline.
+- для `/generate` пользователь может получить изображение, которое плохо соответствует prompt, либо API вернёт `500` с сообщением об ошибке генерации;
+- успешные генерации логируются в `generation_requests`, поэтому можно анализировать плохие prompts и latency offline;
+- для demo `/predict` ошибка отразится как неверный `domain_tag`, но этот endpoint не является главным результатом проекта.
 
 ### Как обеспечивается безопасность данных? Нужно ли логировать конфиденциальные поля?
 
-- в demo-сервисе логируется только caption и техническая информация о запросе;
+- в demo-сервисе логируется prompt/caption и техническая информация о запросе;
 - конфиденциальные поля в production-версии не должны писаться в открытые логи;
 - для чувствительных данных нужен masking или полное исключение из логирования.
 
@@ -1288,21 +1313,22 @@ docker compose up --build
 
 - рост latency;
 - увеличение числа ошибок API;
-- аномальное распределение `ml_predictions_total` по классам;
-- снижение доли валидных успешных ответов;
-- накопление пользовательского feedback о некорректных prediction.
+- рост `ml_generations_total{status="error"}`;
+- рост `ml_generation_latency_seconds`;
+- аномальное распределение `ml_predictions_total` по классам для demo endpoint;
+- drift по offline-метрикам качества генераций: CLIPScore, CLIP-KID proxy, duplicate rate, technical image score.
 
 ### Как вы тестировали интеграцию модулей? Написали ли интеграционные тесты?
 
-- была выполнена проверка структуры, compile-проверка Python-кода и подготовка docker-compose-контура;
-- полноценные интеграционные тесты как отдельный test-suite в проект пока не добавлены;
-- в качестве следующего шага можно добавить smoke tests на `POST /predict`, `/history` и `/health`.
+- была выполнена проверка структуры, compile-проверка Python-кода и проверка `docker compose config`;
+- для API предусмотрены smoke-сценарии на `/health`, `POST /generate`, `/generations/history`, `POST /predict`, `/history` и `/metrics`;
+- полноценные интеграционные тесты как отдельный test-suite в проект пока не добавлены, но сервисная логика разделена так, чтобы их можно было добавить отдельно.
 
 ### Если бы сервис использовали 10 000 пользователей одновременно, что бы сломалось в первую очередь?
 
-- в первую очередь возникла бы перегрузка по API и соединениям с БД;
-- затем стали бы критичны горизонтальное масштабирование inference-service, connection pooling и rate limiting;
-- для такого сценария понадобились бы балансировщик, кэширование и более зрелая очередь обработки.
+- в первую очередь сломалась бы GPU-очередь diffusion generation: одна GPU не сможет одновременно обслужить 10 000 тяжёлых text-to-image запросов;
+- затем узким местом стали бы API workers, connection pool к PostgreSQL и объём хранения generated outputs;
+- для такого сценария нужны очередь задач, batch/async generation workers, несколько GPU worker replicas, rate limiting, object storage lifecycle policy и отдельный autoscaling-контур.
 
 ## Источники для ЛР4
 

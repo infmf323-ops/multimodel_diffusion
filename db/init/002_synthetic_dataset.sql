@@ -38,3 +38,20 @@ CREATE TABLE IF NOT EXISTS synthetic_dataset_samples (
     image_object_uri TEXT NOT NULL,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+
+CREATE TABLE IF NOT EXISTS generation_requests (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    prompt TEXT NOT NULL,
+    negative_prompt TEXT NOT NULL,
+    seed BIGINT NOT NULL,
+    base_model_checkpoint TEXT NOT NULL,
+    lora_adapter_path TEXT NOT NULL,
+    output_path TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    num_inference_steps INTEGER NOT NULL,
+    guidance_scale DOUBLE PRECISION NOT NULL,
+    device TEXT NOT NULL,
+    latency_ms DOUBLE PRECISION NOT NULL
+);

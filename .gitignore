@@ -10,6 +10,7 @@ __pycache__/
 hf_cache/
 postgres_data/
 prometheus_data/
+generated_outputs/
 lora_experiment/artifacts/lora_ab_proxy_30steps/
 lora_experiment/artifacts/lora_ab_proxy_30steps_clip/
 lora_experiment/artifacts/smoke/

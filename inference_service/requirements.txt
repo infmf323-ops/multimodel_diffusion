@@ -3,3 +3,10 @@ uvicorn[standard]==0.34.2
 psycopg[binary]==3.2.6
 prometheus-client==0.21.1
 numpy==2.2.6
+pillow==12.2.0
+diffusers==0.37.1
+transformers==5.5.3
+accelerate==1.13.0
+peft==0.18.0
+safetensors==0.7.0
+torch==2.11.0

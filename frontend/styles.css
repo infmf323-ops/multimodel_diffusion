@@ -171,6 +171,25 @@ button.secondary {
   min-height: 200px;
 }
 
+.output.small {
+  min-height: auto;
+  font-size: 13px;
+}
+
+.generation-output {
+  margin-top: 14px;
+  min-height: 300px;
+}
+
+.generated-image {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 32px rgba(38, 26, 18, 0.12);
+}
+
 .table-wrap {
   overflow: auto;
   margin-top: 12px;

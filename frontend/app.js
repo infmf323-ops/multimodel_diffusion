@@ -1,10 +1,12 @@
 const apiBase = `${window.location.protocol}//${window.location.hostname}:8000`;
 
+const promptInput = document.getElementById("prompt-input");
+const generationOutput = document.getElementById("generation-output");
 const captionInput = document.getElementById("caption-input");
 const predictionOutput = document.getElementById("prediction-output");
 const summaryOutput = document.getElementById("summary-output");
 const historyOutput = document.getElementById("history-output");
-const experimentsOutput = document.getElementById("experiments-output");
+const generationsOutput = document.getElementById("generations-output");
 const healthBadge = document.getElementById("health-badge");
 
 function renderTable(columns, rows) {
@@ -26,7 +28,8 @@ function renderTable(columns, rows) {
 async function fetchJson(path, options = {}) {
   const response = await fetch(`${apiBase}${path}`, options);
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    const text = await response.text();
+    throw new Error(`${response.status} ${response.statusText}: ${text}`);
   }
   return response.json();
 }
@@ -34,11 +37,46 @@ async function fetchJson(path, options = {}) {
 async function loadHealth() {
   try {
     const data = await fetchJson("/health");
-    healthBadge.textContent = data.status === "ok" ? "Сервис доступен" : "Сервис в degraded режиме";
+    const diffusionState = data.diffusion_model_loaded ? "LoRA loaded" : "LoRA lazy";
+    healthBadge.textContent = data.status === "ok" ? `Сервис доступен, ${diffusionState}` : "Сервис в degraded режиме";
     healthBadge.className = `badge ${data.status === "ok" ? "ok" : "fail"}`;
   } catch (error) {
     healthBadge.textContent = `Health error: ${error.message}`;
     healthBadge.className = "badge fail";
+  }
+}
+
+async function generateImage() {
+  generationOutput.innerHTML = "<p>Генерация запущена. Первый запрос может быть долгим: модель загружается лениво.</p>";
+  try {
+    const data = await fetchJson("/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt: promptInput.value,
+        width: 256,
+        height: 256,
+        num_inference_steps: 12,
+        guidance_scale: 5.0,
+      }),
+    });
+
+    generationOutput.innerHTML = `
+      <img class="generated-image" src="data:${data.mime_type};base64,${data.image_base64}" alt="Generated diffusion output">
+      <pre class="output small">${JSON.stringify({
+        seed: data.seed,
+        latency_ms: data.latency_ms,
+        base_model_checkpoint: data.base_model_checkpoint,
+        lora_adapter_path: data.lora_adapter_path,
+        output_path: data.output_path,
+      }, null, 2)}</pre>
+    `;
+    await loadHealth();
+    await loadGenerations();
+  } catch (error) {
+    generationOutput.textContent = `Ошибка генерации: ${error.message}`;
   }
 }
 
@@ -93,36 +131,40 @@ async function loadHistory() {
   }
 }
 
-async function loadExperiments() {
+async function loadGenerations() {
   try {
-    const data = await fetchJson("/experiments/logs?limit=10");
+    const data = await fetchJson("/generations/history?limit=15");
     const rows = data.items.map((item) => ({
-      name: item.name,
-      val_macro_f1: item.val_metrics.macro_f1.toFixed(4),
-      test_macro_f1: item.test_metrics.macro_f1.toFixed(4),
-      test_accuracy: item.test_metrics.accuracy.toFixed(4),
-      latency_ms: item.latency_ms.toFixed(4),
+      created_at: item.created_at,
+      seed: item.seed,
+      latency_ms: item.latency_ms.toFixed(1),
+      device: item.device,
+      prompt: item.prompt,
+      output_path: item.output_path,
     }));
-    experimentsOutput.innerHTML = renderTable(
+    generationsOutput.innerHTML = renderTable(
       [
-        { key: "name", label: "Эксперимент" },
-        { key: "val_macro_f1", label: "Val macro F1" },
-        { key: "test_macro_f1", label: "Test macro F1" },
-        { key: "test_accuracy", label: "Test accuracy" },
+        { key: "created_at", label: "Время" },
+        { key: "seed", label: "Seed" },
         { key: "latency_ms", label: "Latency ms" },
+        { key: "device", label: "Device" },
+        { key: "prompt", label: "Prompt" },
+        { key: "output_path", label: "Output" },
       ],
       rows,
     );
   } catch (error) {
-    experimentsOutput.textContent = `Ошибка загрузки experiments: ${error.message}`;
+    generationsOutput.textContent = `Ошибка загрузки generation history: ${error.message}`;
   }
 }
 
+document.getElementById("generate-btn").addEventListener("click", generateImage);
 document.getElementById("predict-btn").addEventListener("click", predict);
 document.getElementById("refresh-history-btn").addEventListener("click", loadHistory);
-document.getElementById("refresh-experiments-btn").addEventListener("click", loadExperiments);
+document.getElementById("refresh-generations-btn").addEventListener("click", loadGenerations);
+document.getElementById("refresh-experiments-btn").addEventListener("click", loadSummary);
 
 loadHealth();
 loadSummary();
 loadHistory();
-loadExperiments();
+loadGenerations();

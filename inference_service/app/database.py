@@ -85,6 +85,26 @@ def init_db():
                 );
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS generation_requests (
+                    id BIGSERIAL PRIMARY KEY,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    prompt TEXT NOT NULL,
+                    negative_prompt TEXT NOT NULL,
+                    seed BIGINT NOT NULL,
+                    base_model_checkpoint TEXT NOT NULL,
+                    lora_adapter_path TEXT NOT NULL,
+                    output_path TEXT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    num_inference_steps INTEGER NOT NULL,
+                    guidance_scale DOUBLE PRECISION NOT NULL,
+                    device TEXT NOT NULL,
+                    latency_ms DOUBLE PRECISION NOT NULL
+                );
+                """
+            )
         conn.commit()
 
 
@@ -225,6 +245,73 @@ def fetch_synthetic_dataset_samples(limit: int = 20):
             "quality_score": float(row[11]),
             "quality_flag": row[12],
             "image_object_uri": row[13],
+        }
+        for row in rows
+    ]
+
+
+def insert_generation(prompt, negative_prompt, result, latency_ms):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO generation_requests (
+                    prompt, negative_prompt, seed, base_model_checkpoint, lora_adapter_path,
+                    output_path, width, height, num_inference_steps, guidance_scale, device, latency_ms
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                """,
+                (
+                    prompt,
+                    negative_prompt,
+                    result.seed,
+                    result.model_id,
+                    result.lora_adapter_path,
+                    result.output_path,
+                    result.width,
+                    result.height,
+                    result.num_inference_steps,
+                    result.guidance_scale,
+                    result.device,
+                    latency_ms,
+                ),
+            )
+        conn.commit()
+
+
+def fetch_recent_generations(limit: int = 20):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    id, created_at, prompt, negative_prompt, seed, base_model_checkpoint,
+                    lora_adapter_path, output_path, width, height, num_inference_steps,
+                    guidance_scale, device, latency_ms
+                FROM generation_requests
+                ORDER BY created_at DESC
+                LIMIT %s;
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "id": row[0],
+            "created_at": row[1].isoformat(),
+            "prompt": row[2],
+            "negative_prompt": row[3],
+            "seed": row[4],
+            "base_model_checkpoint": row[5],
+            "lora_adapter_path": row[6],
+            "output_path": row[7],
+            "width": row[8],
+            "height": row[9],
+            "num_inference_steps": row[10],
+            "guidance_scale": float(row[11]),
+            "device": row[12],
+            "latency_ms": float(row[13]),
         }
         for row in rows
     ]

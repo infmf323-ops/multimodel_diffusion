@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multimodal Diffusion ML Service</title>
+  <title>Multimodal Diffusion LoRA Service</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="page">
     <section class="hero">
       <p class="eyebrow">Lab 4 Demo</p>
-      <h1>Multimodal Diffusion Caption Router</h1>
+      <h1>Multimodal Diffusion LoRA Service</h1>
       <p class="lead">
-        UI для демонстрации финальной ML-модели из ЛР3, инференс-сервиса,
-        истории запросов, experiment logs и мониторинга.
+        Контейнерный ML-сервис для генерации изображений через финальный LoRA adapter из ЛР3:
+        base model <code>segmind/tiny-sd</code> + adapter <code>seed_plus_synthetic</code>.
+        Рядом доступны история запросов, PostgreSQL, MinIO и Prometheus monitoring.
       </p>
       <div class="badges">
         <span id="health-badge" class="badge muted">Проверка health...</span>
@@ -25,21 +26,32 @@
 
     <section class="grid">
       <article class="card">
-        <h2>Предсказание</h2>
-        <label for="caption-input">Caption</label>
-        <textarea id="caption-input" rows="5">american football player on the field during joint training camp .</textarea>
-        <button id="predict-btn">Отправить в инференс</button>
-        <pre id="prediction-output" class="output">Ожидание запроса...</pre>
+        <h2>Генерация через LoRA</h2>
+        <label for="prompt-input">Prompt</label>
+        <textarea id="prompt-input" rows="5">a cozy modern living room with a fireplace and warm evening light</textarea>
+        <button id="generate-btn">Сгенерировать изображение</button>
+        <div id="generation-output" class="generation-output">Ожидание запроса...</div>
       </article>
 
       <article class="card">
-        <h2>Сводка экспериментов ЛР3</h2>
-        <pre id="summary-output" class="output">Загрузка...</pre>
+        <h2>Demo caption-router endpoint</h2>
+        <label for="caption-input">Caption</label>
+        <textarea id="caption-input" rows="5">american football player on the field during joint training camp .</textarea>
+        <button id="predict-btn">Отправить в /predict</button>
+        <pre id="prediction-output" class="output">Ожидание запроса...</pre>
       </article>
 
       <article class="card full">
         <div class="card-header">
-          <h2>История запросов</h2>
+          <h2>История LoRA-генераций</h2>
+          <button id="refresh-generations-btn" class="secondary">Обновить</button>
+        </div>
+        <div id="generations-output" class="table-wrap">Загрузка...</div>
+      </article>
+
+      <article class="card full">
+        <div class="card-header">
+          <h2>История /predict запросов</h2>
           <button id="refresh-history-btn" class="secondary">Обновить</button>
         </div>
         <div id="history-output" class="table-wrap">Загрузка...</div>
@@ -47,10 +59,10 @@
 
       <article class="card full">
         <div class="card-header">
-          <h2>Последние эксперименты</h2>
+          <h2>Experiment summary</h2>
           <button id="refresh-experiments-btn" class="secondary">Обновить</button>
         </div>
-        <div id="experiments-output" class="table-wrap">Загрузка...</div>
+        <pre id="summary-output" class="output">Загрузка...</pre>
       </article>
     </section>
   </main>

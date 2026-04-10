@@ -12,3 +12,4 @@ __pycache__
 postgres_data
 prometheus_data
 minio_data
+generated_outputs

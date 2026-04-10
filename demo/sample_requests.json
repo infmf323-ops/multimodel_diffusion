@@ -1,14 +1,26 @@
-[
-  {
-    "caption": "american football player on the field during joint training camp ."
-  },
-  {
-    "caption": "portrait of a smiling woman stroking her dog lying on couch"
-  },
-  {
-    "caption": "bright living room in the attic"
-  },
-  {
-    "caption": "farm tractor is moving on the field , cultivating land"
-  }
-]
+{
+  "generate_requests": [
+    {
+      "prompt": "a cozy modern living room with a fireplace and warm evening light",
+      "width": 256,
+      "height": 256,
+      "num_inference_steps": 12,
+      "guidance_scale": 5.0
+    },
+    {
+      "prompt": "a small dog sitting near a window in a bright apartment",
+      "width": 256,
+      "height": 256,
+      "num_inference_steps": 12,
+      "guidance_scale": 5.0
+    }
+  ],
+  "predict_requests": [
+    {
+      "caption": "american football player on the field during joint training camp ."
+    },
+    {
+      "caption": "portrait of a smiling woman stroking her dog lying on couch"
+    }
+  ]
+}
