@@ -2,7 +2,7 @@
 
 ## Общее описание проекта
 
-Проект посвящён проектированию и прототипированию ML-системы для генерации синтетических мультимодальных датасетов `text + image`, а также для последующего дообучения diffusion-моделей. В финальной демонстрационной версии из ЛР4 развёрнут **serving-контур** системы: пользовательский интерфейс, инференс-модуль на основе финальной модели ЛР3, база данных истории запросов и мониторинг.
+Проект посвящён проектированию и прототипированию ML-системы для генерации синтетических мультимодальных датасетов `text + image`, а также для последующего дообучения diffusion-моделей. Практический смысл сервиса: находить недопредставленные темы в исходном датасете, например объектные категории вроде мебели, и догенерировать для них дополнительные пары `prompt + image`. В финальной демонстрационной версии из ЛР4 развёрнут **serving-контур** системы: пользовательский интерфейс, инференс-модуль на основе финальной модели ЛР3, база данных истории запросов и мониторинг.
 
 ## Быстрый запуск через Docker
 
@@ -29,9 +29,10 @@ docker compose up --build
 
 ### Что поднимается
 
-- `frontend` — веб-интерфейс для генерации изображений через LoRA adapter и просмотра результатов;
-- `inference-service` — FastAPI-сервис с endpoint `POST /generate`, который загружает `segmind/tiny-sd` и финальный LoRA adapter `seed_plus_synthetic` из ЛР3;
-- `postgres` — база данных для хранения истории предсказаний;
+- `frontend` — веб-интерфейс для одиночной генерации, постановки batch job, просмотра статуса, preview и manifest;
+- `inference-service` — FastAPI-сервис с endpoint `POST /generate`, sync-demo endpoint `POST /generate/batch` и async endpoint `POST /generation-jobs`;
+- `generation-worker` — отдельный worker-контейнер, который забирает `queued` jobs из PostgreSQL, генерирует изображения через `segmind/tiny-sd + seed_plus_synthetic LoRA` и собирает manifest;
+- `postgres` — база данных для хранения истории предсказаний, generation jobs и metadata сгенерированных изображений;
 - `minio` — S3-compatible object storage для изображений, manifest, preview и ссылок на model artifact;
 - `prometheus` — сбор метрик `/metrics`.
 
@@ -46,6 +47,30 @@ curl -X POST "http://localhost:8000/generate" \
 ```
 
 Ответ содержит `image_base64`, `seed`, `latency_ms`, `base_model_checkpoint`, `lora_adapter_path` и путь к сохранённому PNG внутри контейнера.
+
+### Асинхронная batch-догенерация недостающей темы датасета
+
+Если в исходном датасете мало изображений определённого типа объектов, можно указать тему и число изображений. API создаёт durable job в PostgreSQL, а отдельный `generation-worker` генерирует изображения в фоне. Это ближе к архитектуре ЛР1-ЛР2: UI не держит долгий HTTP-запрос, а периодически читает статус job. Лимит `count` — до `1000`; в UI показываются первые `5` preview, а metadata сохраняется для всех изображений.
+
+```bash
+curl -X POST "http://localhost:8000/generation-jobs" \
+  -H "Content-Type: application/json" \
+  -d "{\"topic\": \"мебель\", \"count\": 100, \"preview_limit\": 5, \"num_inference_steps\": 12, \"width\": 256, \"height\": 256}"
+```
+
+Ответ содержит `job_id`, `status`, `progress`, `topic`, `base_seed`, `preview_items`, список уже сгенерированных `items` и `manifest_url`, когда manifest готов. Для просмотра статуса:
+
+```bash
+curl "http://localhost:8000/generation-jobs/<job_id>"
+```
+
+Для скачивания manifest:
+
+```bash
+curl -o manifest.csv "http://localhost:8000/generation-jobs/<job_id>/manifest"
+```
+
+Sync endpoint `POST /generate/batch` оставлен как быстрый smoke/demo-вариант до `50` изображений, но основной путь для 100/500/1000 изображений — `POST /generation-jobs`.
 
 ### Demo-запрос к caption-router endpoint
 
@@ -1109,12 +1134,18 @@ Validation и test не смешиваются с synthetic data, чтобы ч�
 
 ## Шаг 1. Разработка инференс-модуля
 
-В рамках ЛР4 разработан FastAPI-микросервис для inference по финальному артефакту ЛР3. Основной endpoint `POST /generate` загружает базовую diffusion-модель `segmind/tiny-sd`, подключает LoRA adapter `seed_plus_synthetic` из `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/runs/seed_plus_synthetic/adapters/` и генерирует изображение по текстовому prompt. Модель загружается лениво: контейнер стартует быстро, а checkpoint поднимается при первом запросе генерации.
+В рамках ЛР4 разработан FastAPI-микросервис для inference по финальному артефакту ЛР3. Основной endpoint `POST /generate` загружает базовую diffusion-модель `segmind/tiny-sd`, подключает LoRA adapter `seed_plus_synthetic` из `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/runs/seed_plus_synthetic/adapters/` и генерирует изображение по текстовому prompt. Для сценария расширения датасета добавлен асинхронный endpoint `POST /generation-jobs`: пользователь задаёт тему недостающего сегмента, например `мебель`, и количество изображений до `1000`, API создаёт job, а отдельный `generation-worker` в фоне строит prompts, генерирует серию и собирает CSV manifest. Каждая картинка получает `generation_id`, а вся партия — `job_id`/`batch_id`, чтобы потом было понятно, какой набор использовать для дообучения. Модель загружается лениво: контейнер стартует быстро, а checkpoint поднимается при первом запросе генерации.
 
 ### Что реализовано
 
 - `FastAPI`-сервис в папке `inference_service/`
 - основной endpoint `POST /generate` для генерации изображения через `segmind/tiny-sd + seed_plus_synthetic LoRA`
+- async endpoint `POST /generation-jobs` для постановки batch job на догенерацию недостающего типа объектов
+- worker `python -m inference_service.app.generation_worker` для фоновой генерации и сборки manifest
+- endpoint `GET /generation-jobs/{job_id}` для просмотра статуса и прогресса
+- endpoint `GET /generation-jobs/{job_id}/manifest` для скачивания CSV manifest
+- endpoint `GET /generations/{generation_id}/image` для просмотра preview из сохранённого PNG
+- sync-demo endpoint `POST /generate/batch` для короткой проверки без фонового worker
 - сохранение результата генерации в `/app/generated_outputs`
 - логирование generation requests в PostgreSQL в таблицу `generation_requests`
 - endpoint `GET /generations/history`
@@ -1126,7 +1157,7 @@ Validation и test не смешиваются с synthetic data, чтобы ч�
 
 ### Назначение инференс-модуля
 
-Основное назначение inference-модуля теперь соответствует исходной задаче проекта: пользователь отправляет prompt, сервис генерирует изображение через diffusion-модель, дообученную LoRA adapter из ЛР3, сохраняет результат и пишет latency/metadata в базу.
+Основное назначение inference-модуля теперь соответствует исходной задаче проекта: пользователь отправляет конкретный prompt или тему дефицитного класса, сервис генерирует изображение через diffusion-модель, дообученную LoRA adapter из ЛР3, сохраняет результат и пишет latency/metadata в базу. Batch job нужен именно для расширения датасета: например, если EDA показывает, что в Conceptual Captions мало объектных сцен с мебелью, пользователь вводит `мебель`, задаёт `count`, а worker создаёт несколько разнообразных prompts вроде product photo, interior scene, close-up и lifestyle scene.
 
 Demo-модель `POST /predict` дополнительно классифицирует caption по доменным корзинам:
 
@@ -1274,10 +1305,11 @@ docker compose up --build
 2. Открытие UI на `localhost:3000`
 3. Отправка prompt в форму LoRA generation
 4. Получение изображения, сгенерированного через `segmind/tiny-sd + seed_plus_synthetic LoRA`
-5. Просмотр истории генераций через `GET /generations/history`
-6. Дополнительно: отправка caption в demo endpoint `/predict`
-7. Просмотр `experiments/summary`
-8. Проверка `/metrics` и страницы Prometheus
+5. Batch-догенерация: ввод темы `мебель`, количества изображений, создание background job, просмотр статуса, первых 5 preview и metadata всех сгенерированных элементов с `job_id`/`generation_id`
+6. Просмотр истории генераций через `GET /generations/history`
+7. Дополнительно: отправка caption в demo endpoint `/predict`
+8. Просмотр `experiments/summary`
+9. Проверка `/metrics` и страницы Prometheus
 
 ### Финальная документация
 

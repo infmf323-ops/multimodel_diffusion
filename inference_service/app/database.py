@@ -90,6 +90,9 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS generation_requests (
                     id BIGSERIAL PRIMARY KEY,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    batch_id TEXT,
+                    source TEXT NOT NULL DEFAULT 'single_prompt',
+                    topic TEXT,
                     prompt TEXT NOT NULL,
                     negative_prompt TEXT NOT NULL,
                     seed BIGINT NOT NULL,
@@ -105,6 +108,37 @@ def init_db():
                 );
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS generation_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    started_at TIMESTAMPTZ,
+                    finished_at TIMESTAMPTZ,
+                    status TEXT NOT NULL,
+                    worker_id TEXT,
+                    topic TEXT NOT NULL,
+                    count_requested INTEGER NOT NULL,
+                    count_generated INTEGER NOT NULL DEFAULT 0,
+                    preview_limit INTEGER NOT NULL DEFAULT 5,
+                    negative_prompt TEXT NOT NULL,
+                    base_seed BIGINT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    num_inference_steps INTEGER NOT NULL,
+                    guidance_scale DOUBLE PRECISION NOT NULL,
+                    base_model_checkpoint TEXT NOT NULL,
+                    lora_adapter_path TEXT NOT NULL,
+                    manifest_path TEXT,
+                    error TEXT,
+                    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+                );
+                """
+            )
+            cur.execute("ALTER TABLE generation_requests ADD COLUMN IF NOT EXISTS batch_id TEXT;")
+            cur.execute("ALTER TABLE generation_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'single_prompt';")
+            cur.execute("ALTER TABLE generation_requests ADD COLUMN IF NOT EXISTS topic TEXT;")
         conn.commit()
 
 
@@ -250,18 +284,22 @@ def fetch_synthetic_dataset_samples(limit: int = 20):
     ]
 
 
-def insert_generation(prompt, negative_prompt, result, latency_ms):
+def insert_generation(prompt, negative_prompt, result, latency_ms, batch_id=None, topic=None, source="single_prompt"):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO generation_requests (
-                    prompt, negative_prompt, seed, base_model_checkpoint, lora_adapter_path,
+                    batch_id, source, topic, prompt, negative_prompt, seed, base_model_checkpoint, lora_adapter_path,
                     output_path, width, height, num_inference_steps, guidance_scale, device, latency_ms
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id;
                 """,
                 (
+                    batch_id,
+                    source,
+                    topic,
                     prompt,
                     negative_prompt,
                     result.seed,
@@ -276,7 +314,278 @@ def insert_generation(prompt, negative_prompt, result, latency_ms):
                     latency_ms,
                 ),
             )
+            generation_id = cur.fetchone()[0]
         conn.commit()
+    return generation_id
+
+
+def _job_to_dict(row):
+    if row is None:
+        return None
+    return {
+        "job_id": row[0],
+        "created_at": row[1].isoformat(),
+        "updated_at": row[2].isoformat(),
+        "started_at": row[3].isoformat() if row[3] else None,
+        "finished_at": row[4].isoformat() if row[4] else None,
+        "status": row[5],
+        "worker_id": row[6],
+        "topic": row[7],
+        "count_requested": row[8],
+        "count_generated": row[9],
+        "preview_limit": row[10],
+        "negative_prompt": row[11],
+        "base_seed": row[12],
+        "width": row[13],
+        "height": row[14],
+        "num_inference_steps": row[15],
+        "guidance_scale": float(row[16]),
+        "base_model_checkpoint": row[17],
+        "lora_adapter_path": row[18],
+        "manifest_path": row[19],
+        "error": row[20],
+        "metadata": row[21],
+    }
+
+
+JOB_COLUMNS = """
+    job_id, created_at, updated_at, started_at, finished_at, status, worker_id,
+    topic, count_requested, count_generated, preview_limit, negative_prompt,
+    base_seed, width, height, num_inference_steps, guidance_scale,
+    base_model_checkpoint, lora_adapter_path, manifest_path, error, metadata
+"""
+
+JOB_COLUMNS_FROM_JOB_ALIAS = """
+    job.job_id, job.created_at, job.updated_at, job.started_at, job.finished_at, job.status, job.worker_id,
+    job.topic, job.count_requested, job.count_generated, job.preview_limit, job.negative_prompt,
+    job.base_seed, job.width, job.height, job.num_inference_steps, job.guidance_scale,
+    job.base_model_checkpoint, job.lora_adapter_path, job.manifest_path, job.error, job.metadata
+"""
+
+
+def create_generation_job(
+    job_id,
+    topic,
+    count_requested,
+    preview_limit,
+    negative_prompt,
+    base_seed,
+    width,
+    height,
+    num_inference_steps,
+    guidance_scale,
+    base_model_checkpoint,
+    lora_adapter_path,
+    metadata=None,
+):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                INSERT INTO generation_jobs (
+                    job_id, status, topic, count_requested, preview_limit, negative_prompt,
+                    base_seed, width, height, num_inference_steps, guidance_scale,
+                    base_model_checkpoint, lora_adapter_path, metadata
+                )
+                VALUES (%s, 'queued', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                RETURNING {JOB_COLUMNS};
+                """,
+                (
+                    job_id,
+                    topic,
+                    count_requested,
+                    preview_limit,
+                    negative_prompt,
+                    base_seed,
+                    width,
+                    height,
+                    num_inference_steps,
+                    guidance_scale,
+                    base_model_checkpoint,
+                    lora_adapter_path,
+                    json.dumps(metadata or {}, ensure_ascii=False),
+                ),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return _job_to_dict(row)
+
+
+def acquire_next_generation_job(worker_id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                WITH next_job AS (
+                    SELECT job_id
+                    FROM generation_jobs
+                    WHERE status = 'queued'
+                    ORDER BY created_at
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE generation_jobs AS job
+                SET status = 'running',
+                    worker_id = %s,
+                    started_at = COALESCE(started_at, NOW()),
+                    updated_at = NOW()
+                FROM next_job
+                WHERE job.job_id = next_job.job_id
+                RETURNING {JOB_COLUMNS_FROM_JOB_ALIAS};
+                """,
+                (worker_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return _job_to_dict(row)
+
+
+def update_generation_job_progress(job_id, count_generated):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE generation_jobs
+                SET count_generated = %s, updated_at = NOW()
+                WHERE job_id = %s;
+                """,
+                (count_generated, job_id),
+            )
+        conn.commit()
+
+
+def complete_generation_job(job_id, manifest_path):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE generation_jobs
+                SET status = 'done',
+                    finished_at = NOW(),
+                    updated_at = NOW(),
+                    manifest_path = %s,
+                    error = NULL
+                WHERE job_id = %s
+                RETURNING {JOB_COLUMNS};
+                """,
+                (manifest_path, job_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return _job_to_dict(row)
+
+
+def fail_generation_job(job_id, error):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE generation_jobs
+                SET status = 'failed',
+                    finished_at = NOW(),
+                    updated_at = NOW(),
+                    error = %s
+                WHERE job_id = %s
+                RETURNING {JOB_COLUMNS};
+                """,
+                (error, job_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return _job_to_dict(row)
+
+
+def fetch_generation_job(job_id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {JOB_COLUMNS}
+                FROM generation_jobs
+                WHERE job_id = %s;
+                """,
+                (job_id,),
+            )
+            row = cur.fetchone()
+    return _job_to_dict(row)
+
+
+def fetch_recent_generation_jobs(limit=20):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {JOB_COLUMNS}
+                FROM generation_jobs
+                ORDER BY created_at DESC
+                LIMIT %s;
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+    return [_job_to_dict(row) for row in rows]
+
+
+def fetch_generations_by_batch(batch_id, limit=1000):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    id, created_at, batch_id, source, topic, prompt, negative_prompt,
+                    seed, base_model_checkpoint, lora_adapter_path, output_path, width,
+                    height, num_inference_steps, guidance_scale, device, latency_ms
+                FROM generation_requests
+                WHERE batch_id = %s
+                ORDER BY id
+                LIMIT %s;
+                """,
+                (batch_id, limit),
+            )
+            rows = cur.fetchall()
+
+    return [_generation_to_dict(row) for row in rows]
+
+
+def fetch_generation_by_id(generation_id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    id, created_at, batch_id, source, topic, prompt, negative_prompt,
+                    seed, base_model_checkpoint, lora_adapter_path, output_path, width,
+                    height, num_inference_steps, guidance_scale, device, latency_ms
+                FROM generation_requests
+                WHERE id = %s;
+                """,
+                (generation_id,),
+            )
+            row = cur.fetchone()
+
+    return _generation_to_dict(row) if row else None
+
+
+def _generation_to_dict(row):
+    return {
+        "id": row[0],
+        "created_at": row[1].isoformat(),
+        "batch_id": row[2],
+        "source": row[3],
+        "topic": row[4],
+        "prompt": row[5],
+        "negative_prompt": row[6],
+        "seed": row[7],
+        "base_model_checkpoint": row[8],
+        "lora_adapter_path": row[9],
+        "output_path": row[10],
+        "width": row[11],
+        "height": row[12],
+        "num_inference_steps": row[13],
+        "guidance_scale": float(row[14]),
+        "device": row[15],
+        "latency_ms": float(row[16]),
+    }
 
 
 def fetch_recent_generations(limit: int = 20):
@@ -285,9 +594,9 @@ def fetch_recent_generations(limit: int = 20):
             cur.execute(
                 """
                 SELECT
-                    id, created_at, prompt, negative_prompt, seed, base_model_checkpoint,
-                    lora_adapter_path, output_path, width, height, num_inference_steps,
-                    guidance_scale, device, latency_ms
+                    id, created_at, batch_id, source, topic, prompt, negative_prompt,
+                    seed, base_model_checkpoint, lora_adapter_path, output_path, width,
+                    height, num_inference_steps, guidance_scale, device, latency_ms
                 FROM generation_requests
                 ORDER BY created_at DESC
                 LIMIT %s;
@@ -296,22 +605,4 @@ def fetch_recent_generations(limit: int = 20):
             )
             rows = cur.fetchall()
 
-    return [
-        {
-            "id": row[0],
-            "created_at": row[1].isoformat(),
-            "prompt": row[2],
-            "negative_prompt": row[3],
-            "seed": row[4],
-            "base_model_checkpoint": row[5],
-            "lora_adapter_path": row[6],
-            "output_path": row[7],
-            "width": row[8],
-            "height": row[9],
-            "num_inference_steps": row[10],
-            "guidance_scale": float(row[11]),
-            "device": row[12],
-            "latency_ms": float(row[13]),
-        }
-        for row in rows
-    ]
+    return [_generation_to_dict(row) for row in rows]

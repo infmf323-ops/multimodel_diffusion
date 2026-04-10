@@ -127,15 +127,29 @@ label {
   font-size: 15px;
 }
 
-textarea {
+textarea,
+input {
   width: 100%;
-  resize: vertical;
-  min-height: 130px;
   padding: 14px;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: #fff;
   font: inherit;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 130px;
+}
+
+input + label {
+  margin-top: 14px;
+}
+
+.hint {
+  margin: -4px 0 16px;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 button {
@@ -158,6 +172,13 @@ button.secondary {
   background: #fff;
   color: var(--text);
   border: 1px solid var(--line);
+}
+
+.download-link {
+  display: inline-flex;
+  margin-top: 4px;
+  color: var(--accent-dark);
+  font-weight: 700;
 }
 
 .output {
@@ -190,6 +211,27 @@ button.secondary {
   box-shadow: 0 14px 32px rgba(38, 26, 18, 0.12);
 }
 
+.batch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.batch-item {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+}
+
+.batch-item p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 .table-wrap {
   overflow: auto;
   margin-top: 12px;
@@ -214,6 +256,10 @@ th {
 
 @media (max-width: 900px) {
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-grid {
     grid-template-columns: 1fr;
   }
 }

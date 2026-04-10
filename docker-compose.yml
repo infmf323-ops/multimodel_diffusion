@@ -60,6 +60,30 @@ services:
       minio:
         condition: service_healthy
 
+  generation-worker:
+    build:
+      context: .
+      dockerfile: inference_service/Dockerfile
+    container_name: multimodal-generation-worker
+    command: ["python", "-m", "inference_service.app.generation_worker"]
+    environment:
+      DATABASE_URL: postgresql://multimodal:multimodal@postgres:5432/multimodal_diffusion
+      DIFFUSION_BASE_MODEL: segmind/tiny-sd
+      LORA_ADAPTER_PATH: /app/lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/runs/seed_plus_synthetic/adapters
+      GENERATION_OUTPUT_DIR: /app/generated_outputs
+      HF_HOME: /cache/huggingface
+      DIFFUSION_DEVICE: auto
+      GENERATION_WORKER_POLL_SECONDS: 2
+    gpus: all
+    volumes:
+      - hf_cache:/cache/huggingface
+      - generation_outputs:/app/generated_outputs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
   frontend:
     build:
       context: .

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Multimodal Diffusion LoRA Service</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=jobs-20260410">
 </head>
 <body>
   <main class="page">
@@ -31,6 +31,19 @@
         <textarea id="prompt-input" rows="5">a cozy modern living room with a fireplace and warm evening light</textarea>
         <button id="generate-btn">Сгенерировать изображение</button>
         <div id="generation-output" class="generation-output">Ожидание запроса...</div>
+      </article>
+
+      <article class="card">
+        <h2>Догенерация по теме</h2>
+        <p class="hint">
+          Для покрытия дефицитного класса: вводишь тему, например <code>мебель</code>, и количество до 1000 изображений. Worker генерирует в фоне, UI показывает статус, первые 5 preview и manifest.
+        </p>
+        <label for="topic-input">Тема / недостающий тип объектов</label>
+        <input id="topic-input" type="text" value="мебель" maxlength="120">
+        <label for="batch-count-input">Количество изображений</label>
+        <input id="batch-count-input" type="number" value="100" min="1" max="1000">
+        <button id="batch-generate-btn">Создать batch job</button>
+        <div id="batch-generation-output" class="generation-output">Ожидание batch-запроса...</div>
       </article>
 
       <article class="card">
@@ -67,6 +80,6 @@
     </section>
   </main>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=jobs-20260410"></script>
 </body>
 </html>
