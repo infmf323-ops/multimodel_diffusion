@@ -121,7 +121,7 @@ services:
   mlflow:
     build:
       context: .
-      dockerfile: mlflow/Dockerfile
+      dockerfile: mlflow_service/Dockerfile
     container_name: multimodal-mlflow
     ports:
       - "5000:5000"

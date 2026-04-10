@@ -1,0 +1,82 @@
+[
+  {
+    "domain_tag": "sports",
+    "prompt": "football player in red uniform running across a wet stadium field",
+    "generation_prompt": "football player in red uniform running across a wet stadium field, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "sports",
+    "prompt": "basketball player jumping near the hoop under bright arena lights",
+    "generation_prompt": "basketball player jumping near the hoop under bright arena lights, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "sports",
+    "prompt": "tennis racket and ball on a blue court with strong shadows",
+    "generation_prompt": "tennis racket and ball on a blue court with strong shadows, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "sports",
+    "prompt": "cyclist on a mountain road during a cloudy morning race",
+    "generation_prompt": "cyclist on a mountain road during a cloudy morning race, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "animals_nature",
+    "prompt": "golden retriever sitting near a small river in autumn forest",
+    "generation_prompt": "golden retriever sitting near a small river in autumn forest, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "animals_nature",
+    "prompt": "white sheep standing on a snowy hill under pale sky",
+    "generation_prompt": "white sheep standing on a snowy hill under pale sky, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "animals_nature",
+    "prompt": "green turtle on a clean white studio background",
+    "generation_prompt": "green turtle on a clean white studio background, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "animals_nature",
+    "prompt": "deer silhouette near trees with orange sunset behind",
+    "generation_prompt": "deer silhouette near trees with orange sunset behind, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "people_entertainment",
+    "prompt": "singer holding a microphone on a small concert stage",
+    "generation_prompt": "singer holding a microphone on a small concert stage, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "people_entertainment",
+    "prompt": "actor walking on a red carpet near photographers",
+    "generation_prompt": "actor walking on a red carpet near photographers, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "people_entertainment",
+    "prompt": "business woman presenting a chart in a modern office",
+    "generation_prompt": "business woman presenting a chart in a modern office, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "people_entertainment",
+    "prompt": "person dancing in colorful clothes during a city festival",
+    "generation_prompt": "person dancing in colorful clothes during a city festival, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "places_objects",
+    "prompt": "minimal living room with green couch and wooden coffee table",
+    "generation_prompt": "minimal living room with green couch and wooden coffee table, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "places_objects",
+    "prompt": "safe deposit box with paper money on a white background",
+    "generation_prompt": "safe deposit box with paper money on a white background, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "places_objects",
+    "prompt": "modern bridge over a river with glass buildings nearby",
+    "generation_prompt": "modern bridge over a river with glass buildings nearby, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  },
+  {
+    "domain_tag": "places_objects",
+    "prompt": "bright bus station with empty benches and morning light",
+    "generation_prompt": "bright bus station with empty benches and morning light, realistic photo, high quality, detailed, natural lighting, sharp focus, dataset sample"
+  }
+]

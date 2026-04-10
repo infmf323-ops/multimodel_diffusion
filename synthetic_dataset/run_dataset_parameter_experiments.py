@@ -2,6 +2,7 @@ import csv
 import json
 import math
 import os
+import sys
 import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
@@ -20,6 +21,12 @@ except ImportError:
 
 from generate_diffusion_dataset import NEGATIVE_PROMPT, PROMPTS, enhanced_prompt
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
@@ -33,7 +40,7 @@ PREVIEW_PLOT = OUTPUT_ROOT / "experiment_preview_grid.png"
 PROMPT_POOL_JSON = OUTPUT_ROOT / "prompt_pool.json"
 MLFLOW_ENABLED = os.getenv("MLFLOW_ENABLED", "true").lower() == "true"
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
-MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "synthetic-dataset-parameter-search")
+MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "synthetic-dataset-parameter-search-v2")
 
 
 @dataclass
@@ -270,8 +277,12 @@ def log_experiment_run_to_mlflow(config: ExperimentConfig, stats: dict, exp_dir:
                 "avg_file_size_kb": float(stats["avg_file_size_kb"]),
             }
         )
-        mlflow.log_dict(stats, "stats.json")
-        mlflow.log_artifacts(str(exp_dir), artifact_path=f"parameter_experiments/{config.name}")
+        try:
+            mlflow.log_artifacts(str(exp_dir), artifact_path=f"parameter_experiments/{config.name}")
+            mlflow.set_tag("artifact_logging", "ok")
+        except Exception as exc:
+            mlflow.set_tag("artifact_logging", f"failed:{type(exc).__name__}")
+            mlflow.set_tag("artifact_logging_error", str(exc))
 
 
 def metric_bar_panel(draw: ImageDraw.ImageDraw, area: tuple[int, int, int, int], title: str, rows: list[dict], key: str, color: str):
@@ -400,7 +411,12 @@ def run():
                 "tracking_uri": MLFLOW_TRACKING_URI,
             }
         )
-        mlflow.log_artifact(str(PROMPT_POOL_JSON), artifact_path="dataset_setup")
+        try:
+            mlflow.log_artifact(str(PROMPT_POOL_JSON), artifact_path="dataset_setup")
+            mlflow.set_tag("setup_artifact_logging", "ok")
+        except Exception as exc:
+            mlflow.set_tag("setup_artifact_logging", f"failed:{type(exc).__name__}")
+            mlflow.set_tag("setup_artifact_logging_error", str(exc))
 
     try:
         for exp_index, config in enumerate(EXPERIMENTS):
@@ -503,10 +519,17 @@ def run():
                     "best_num_inference_steps": best["num_inference_steps"],
                 }
             )
-            mlflow.log_artifact(str(SUMMARY_JSON), artifact_path="dataset_summary")
-            mlflow.log_artifact(str(SUMMARY_CSV), artifact_path="dataset_summary")
-            mlflow.log_artifact(str(COMPARISON_PLOT), artifact_path="plots")
-            mlflow.log_artifact(str(PREVIEW_PLOT), artifact_path="plots")
+            for local_path, artifact_path in [
+                (str(SUMMARY_JSON), "dataset_summary"),
+                (str(SUMMARY_CSV), "dataset_summary"),
+                (str(COMPARISON_PLOT), "plots"),
+                (str(PREVIEW_PLOT), "plots"),
+            ]:
+                try:
+                    mlflow.log_artifact(local_path, artifact_path=artifact_path)
+                except Exception as exc:
+                    mlflow.set_tag("final_artifact_logging", f"failed:{type(exc).__name__}")
+                    mlflow.set_tag("final_artifact_logging_error", str(exc))
 
         print(json.dumps(summary_rows, ensure_ascii=False, indent=2))
     finally:

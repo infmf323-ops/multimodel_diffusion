@@ -105,7 +105,7 @@ curl "http://localhost:8000/experiments/summary"
 python synthetic_dataset/run_dataset_parameter_experiments.py
 ```
 
-По умолчанию скрипт пишет в `MLFLOW_TRACKING_URI=http://localhost:5000` и создаёт experiment `synthetic-dataset-parameter-search`. В runs сохраняются:
+По умолчанию скрипт пишет в `MLFLOW_TRACKING_URI=http://localhost:5000` и создаёт experiment `synthetic-dataset-parameter-search-v2`. В runs сохраняются:
 
 - параметры генерации (`resolution`, `num_inference_steps`, `guidance_scale`);
 - dataset-level метрики (`avg_quality_score`, `diversity_score`, `near_duplicate_rate`, `avg_latency_ms`);
@@ -1390,7 +1390,7 @@ Offline-конвейер генерации synthetic dataset и расчёта 
 - `frontend/Dockerfile`
 - `monitoring/Dockerfile`
 - `db/Dockerfile`
-- `mlflow/Dockerfile`
+- `mlflow_service/Dockerfile`
 
 Также используются:
 
