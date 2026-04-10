@@ -118,9 +118,23 @@ services:
     depends_on:
       - inference-service
 
+  mlflow:
+    build:
+      context: .
+      dockerfile: mlflow/Dockerfile
+    container_name: multimodal-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_artifacts:/mlflow_artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   prometheus_data:
   minio_data:
+  mlflow_artifacts:
   hf_cache:
   generation_outputs:

@@ -6,3 +6,4 @@ accelerate
 safetensors
 pillow
 numpy
+mlflow

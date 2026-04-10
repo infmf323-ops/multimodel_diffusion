@@ -26,6 +26,7 @@ docker compose up --build
 - MinIO API: `http://localhost:9000`
 - MinIO Console: `http://localhost:9001`
 - Prometheus: `http://localhost:9090`
+- MLflow: `http://localhost:5000`
 
 ### Что поднимается
 
@@ -34,6 +35,7 @@ docker compose up --build
 - `generation-worker` — отдельный worker-контейнер, который забирает `queued` jobs из PostgreSQL, генерирует изображения через `segmind/tiny-sd` и собирает manifest;
 - `postgres` — база данных для хранения истории предсказаний, generation jobs и metadata сгенерированных изображений;
 - `minio` — S3-compatible object storage для изображений, manifest, preview и ссылок на model artifact;
+- `mlflow` — tracking server для экспериментов ЛР3: параметры генерации, dataset-level метрики и артефакты;
 - `prometheus` — сбор метрик `/metrics`.
 
 ## Примеры использования
@@ -92,6 +94,22 @@ curl "http://localhost:8000/generations/history?limit=10"
 ```bash
 curl "http://localhost:8000/experiments/summary"
 ```
+
+### Просмотр MLflow экспериментов ЛР3
+
+После запуска стенда MLflow UI доступен по адресу `http://localhost:5000`.
+
+Чтобы залогировать актуальные dataset-эксперименты в tracking server, можно запустить:
+
+```bash
+python synthetic_dataset/run_dataset_parameter_experiments.py
+```
+
+По умолчанию скрипт пишет в `MLFLOW_TRACKING_URI=http://localhost:5000` и создаёт experiment `synthetic-dataset-parameter-search`. В runs сохраняются:
+
+- параметры генерации (`resolution`, `num_inference_steps`, `guidance_scale`);
+- dataset-level метрики (`avg_quality_score`, `diversity_score`, `near_duplicate_rate`, `avg_latency_ms`);
+- артефакты (`manifest.csv`, `stats.json`, preview images, comparison plots, `summary.json`).
 
 ### Просмотр синтетического датасета через API
 
@@ -1300,6 +1318,7 @@ Demo-модель `POST /predict` дополнительно классифиц�
 - `minio` — S3-compatible storage для PNG и CSV manifest, создаваемых в online generation flow;
 - `synthetic_dataset/parameter_experiments artifacts` — хранят итоговые конфигурации, manifests и dataset-level метрики;
 - `lab3 artifacts` — оставлены для demo caption-router endpoint и истории предыдущих экспериментов;
+- `mlflow` — experiment tracking для ЛР3;
 - `prometheus` — сбор метрик мониторинга.
 
 ### Что изменилось относительно архитектуры ЛР1-ЛР2
@@ -1371,6 +1390,7 @@ Offline-конвейер генерации synthetic dataset и расчёта 
 - `frontend/Dockerfile`
 - `monitoring/Dockerfile`
 - `db/Dockerfile`
+- `mlflow/Dockerfile`
 
 Также используются:
 
@@ -1388,6 +1408,7 @@ Offline-конвейер генерации synthetic dataset и расчёта 
 - network-взаимодействие;
 - volumes для PostgreSQL, Prometheus, Hugging Face cache и generated outputs;
 - volume для MinIO object storage;
+- volume для MLflow artifacts;
 - GPU-доступ для `inference-service` через `gpus: all`;
 - healthcheck для БД.
 
@@ -1415,6 +1436,7 @@ docker compose up --build
 - веб-интерфейс: `frontend/`
 - инференс-сервис с endpoint `POST /generate`: `inference_service/`
 - целевой набор артефактов ЛР3: `synthetic_dataset/parameter_experiments/`
+- MLflow tracking UI с runs и artifacts: `http://localhost:5000`
 - demo caption-router артефакты для ЛР4: `lab3/artifacts/`
 
 ### Что показывать на демонстрации
@@ -1428,6 +1450,7 @@ docker compose up --build
 7. Дополнительно: отправка caption в demo endpoint `/predict`
 8. Просмотр `experiments/summary`
 9. Проверка `/metrics` и страницы Prometheus
+10. Просмотр runs в MLflow UI
 
 ### Финальная документация
 
