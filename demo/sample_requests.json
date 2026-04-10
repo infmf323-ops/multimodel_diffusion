@@ -15,6 +15,17 @@
       "guidance_scale": 5.0
     }
   ],
+  "generation_job_requests": [
+    {
+      "topic": "furniture",
+      "count": 20,
+      "preview_limit": 5,
+      "width": 320,
+      "height": 320,
+      "num_inference_steps": 22,
+      "guidance_scale": 7.5
+    }
+  ],
   "predict_requests": [
     {
       "caption": "american football player on the field during joint training camp ."

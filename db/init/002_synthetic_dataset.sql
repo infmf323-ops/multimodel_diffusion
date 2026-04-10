@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS generation_requests (
     base_model_checkpoint TEXT NOT NULL,
     lora_adapter_path TEXT NOT NULL,
     output_path TEXT NOT NULL,
+    output_object_uri TEXT,
     width INTEGER NOT NULL,
     height INTEGER NOT NULL,
     num_inference_steps INTEGER NOT NULL,

@@ -27,8 +27,9 @@ from .database import (
     insert_generation,
     insert_prediction,
 )
-from .diffusion_runtime import DiffusionLoraGenerator
+from .diffusion_runtime import DiffusionGenerator
 from .model_runtime import CaptionRouterModel
+from .storage import ObjectStorage
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -42,21 +43,17 @@ GENERATION_COUNT = Counter("ml_generations_total", "Diffusion generations by sta
 GENERATION_LATENCY = Histogram("ml_generation_latency_seconds", "Diffusion generation latency")
 DB_HEALTH = Gauge("db_health_status", "Database health status")
 MODEL_LOADED = Gauge("model_loaded_status", "Model loaded status")
-DIFFUSION_MODEL_LOADED = Gauge("diffusion_model_loaded_status", "Diffusion LoRA model loaded status")
+DIFFUSION_MODEL_LOADED = Gauge("diffusion_model_loaded_status", "Diffusion model loaded status")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODEL_PATH = Path(os.getenv("MODEL_PATH", REPO_ROOT / "lab3" / "artifacts" / "models" / "final_caption_router_model.npz"))
 MODEL_META_PATH = Path(os.getenv("MODEL_META_PATH", REPO_ROOT / "lab3" / "artifacts" / "models" / "final_caption_router_model_meta.json"))
 SAMPLE_DATA_PATH = Path(os.getenv("SAMPLE_DATA_PATH", REPO_ROOT / "lab3" / "data" / "conceptual_captions_sample_100.tsv"))
-SUMMARY_PATH = Path(os.getenv("SUMMARY_PATH", REPO_ROOT / "lab3" / "artifacts" / "lab3_summary.json"))
+SUMMARY_PATH = Path(os.getenv("SUMMARY_PATH", REPO_ROOT / "synthetic_dataset" / "parameter_experiments" / "summary.json"))
 EXPERIMENTS_PATH = Path(os.getenv("EXPERIMENTS_PATH", REPO_ROOT / "lab3" / "artifacts" / "experiments" / "experiment_log.jsonl"))
 DIFFUSION_BASE_MODEL = os.getenv("DIFFUSION_BASE_MODEL", "segmind/tiny-sd")
-LORA_ADAPTER_PATH = Path(
-    os.getenv(
-        "LORA_ADAPTER_PATH",
-        REPO_ROOT / "lora_experiment" / "artifacts" / "lora_ab_cc_seed_60steps_clip" / "runs" / "seed_plus_synthetic" / "adapters",
-    )
-)
+ADAPTER_PATH_ENV = os.getenv("DIFFUSION_ADAPTER_PATH") or os.getenv("LORA_ADAPTER_PATH")
+DIFFUSION_ADAPTER_PATH = Path(ADAPTER_PATH_ENV) if ADAPTER_PATH_ENV else None
 GENERATION_OUTPUT_DIR = Path(os.getenv("GENERATION_OUTPUT_DIR", REPO_ROOT / "generated_outputs"))
 DIFFUSION_DEVICE = os.getenv("DIFFUSION_DEVICE", "auto")
 
@@ -87,10 +84,10 @@ class BatchGenerateRequest(BaseModel):
         max_length=500,
     )
     seed: int | None = Field(default=None, ge=0, le=2_147_483_000)
-    width: int = Field(default=256, ge=128, le=512)
-    height: int = Field(default=256, ge=128, le=512)
-    num_inference_steps: int = Field(default=12, ge=1, le=50)
-    guidance_scale: float = Field(default=5.0, ge=1.0, le=20.0)
+    width: int = Field(default=320, ge=128, le=512)
+    height: int = Field(default=320, ge=128, le=512)
+    num_inference_steps: int = Field(default=22, ge=1, le=50)
+    guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
 
 
 class GenerationJobRequest(BaseModel):
@@ -102,16 +99,16 @@ class GenerationJobRequest(BaseModel):
         max_length=500,
     )
     seed: int | None = Field(default=None, ge=0, le=2_147_483_000)
-    width: int = Field(default=256, ge=128, le=512)
-    height: int = Field(default=256, ge=128, le=512)
-    num_inference_steps: int = Field(default=12, ge=1, le=50)
-    guidance_scale: float = Field(default=5.0, ge=1.0, le=20.0)
+    width: int = Field(default=320, ge=128, le=512)
+    height: int = Field(default=320, ge=128, le=512)
+    num_inference_steps: int = Field(default=22, ge=1, le=50)
+    guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
 
 
 app = FastAPI(
-    title="Multimodal Diffusion LoRA Service",
+    title="Multimodal Diffusion Dataset Service",
     version="2.0.0",
-    description="Inference API for the LR3 LoRA diffusion adapter with monitoring and PostgreSQL history.",
+    description="Inference API for synthetic dataset generation with monitoring and PostgreSQL history.",
 )
 
 app.add_middleware(
@@ -123,12 +120,13 @@ app.add_middleware(
 
 model = CaptionRouterModel(MODEL_PATH, MODEL_META_PATH, SAMPLE_DATA_PATH)
 MODEL_LOADED.set(1)
-diffusion_generator = DiffusionLoraGenerator(
+diffusion_generator = DiffusionGenerator(
     base_model_id=DIFFUSION_BASE_MODEL,
-    lora_adapter_path=LORA_ADAPTER_PATH,
+    adapter_path=DIFFUSION_ADAPTER_PATH,
     output_dir=GENERATION_OUTPUT_DIR,
     device=DIFFUSION_DEVICE,
 )
+object_storage = ObjectStorage()
 DIFFUSION_MODEL_LOADED.set(0)
 
 TOPIC_TRANSLATIONS = {
@@ -172,6 +170,14 @@ def build_topic_prompts(topic: str, count: int) -> list[str]:
         TOPIC_PROMPT_TEMPLATES[index % len(TOPIC_PROMPT_TEMPLATES)].format(topic=prompt_topic)
         for index in range(count)
     ]
+
+
+def upload_generation_artifact(result, batch_id: str | None = None) -> str | None:
+    file_name = Path(result.output_path).name
+    object_key = f"{object_storage.prefix}/images/{file_name}"
+    if batch_id:
+        object_key = f"{object_storage.prefix}/batches/{batch_id}/images/{file_name}"
+    return object_storage.upload_bytes(result.image_bytes, object_key, "image/png")
 
 
 @app.middleware("http")
@@ -292,7 +298,14 @@ def generate(payload: GenerateRequest):
     DIFFUSION_MODEL_LOADED.set(1 if diffusion_generator.is_loaded() else 0)
 
     try:
-        generation_id = insert_generation(prompt, negative_prompt, result, latency_ms)
+        output_object_uri = upload_generation_artifact(result)
+        generation_id = insert_generation(
+            prompt,
+            negative_prompt,
+            result,
+            latency_ms,
+            output_object_uri=output_object_uri,
+        )
     except Exception as exc:
         logger.error(json.dumps({"event": "generation_db_insert_failed", "error": str(exc)}, ensure_ascii=False))
         raise HTTPException(status_code=500, detail="Generation was computed, but storing history failed.")
@@ -306,8 +319,10 @@ def generate(payload: GenerateRequest):
         "mime_type": "image/png",
         "seed": result.seed,
         "base_model_checkpoint": result.model_id,
+        "adapter_path": result.lora_adapter_path or None,
         "lora_adapter_path": result.lora_adapter_path,
         "output_path": result.output_path,
+        "output_object_uri": output_object_uri,
         "device": result.device,
         "width": result.width,
         "height": result.height,
@@ -362,6 +377,7 @@ def generate_batch(payload: BatchGenerateRequest):
         DIFFUSION_MODEL_LOADED.set(1 if diffusion_generator.is_loaded() else 0)
 
         try:
+            output_object_uri = upload_generation_artifact(result, batch_id=batch_id)
             generation_id = insert_generation(
                 prompt,
                 negative_prompt,
@@ -370,6 +386,7 @@ def generate_batch(payload: BatchGenerateRequest):
                 batch_id=batch_id,
                 topic=topic,
                 source="batch_topic",
+                output_object_uri=output_object_uri,
             )
         except Exception as exc:
             logger.error(json.dumps({"event": "batch_generation_db_insert_failed", "error": str(exc)}, ensure_ascii=False))
@@ -387,8 +404,10 @@ def generate_batch(payload: BatchGenerateRequest):
                 "has_preview": index < payload.preview_limit,
                 "seed": result.seed,
                 "base_model_checkpoint": result.model_id,
+                "adapter_path": result.lora_adapter_path or None,
                 "lora_adapter_path": result.lora_adapter_path,
                 "output_path": result.output_path,
+                "output_object_uri": output_object_uri,
                 "device": result.device,
                 "width": result.width,
                 "height": result.height,
@@ -432,6 +451,7 @@ def generation_job_response(job):
         "items": items,
         "preview_items": preview_items,
         "manifest_url": f"/generation-jobs/{job['job_id']}/manifest" if job["manifest_path"] else None,
+        "manifest_object_uri": job["manifest_object_uri"],
     }
 
 
@@ -452,7 +472,7 @@ def create_job(payload: GenerationJobRequest):
         num_inference_steps=payload.num_inference_steps,
         guidance_scale=payload.guidance_scale,
         base_model_checkpoint=DIFFUSION_BASE_MODEL,
-        lora_adapter_path=str(LORA_ADAPTER_PATH),
+        lora_adapter_path=str(DIFFUSION_ADAPTER_PATH) if DIFFUSION_ADAPTER_PATH else "",
         metadata={
             "prompt_strategy": "topic_templates_for_dataset_gap_augmentation",
             "queue_backend": "postgres_generation_jobs",
@@ -524,7 +544,7 @@ def synthetic_dataset_samples(limit: int = Query(default=20, ge=1, le=100)):
 def model_info():
     return {
         "caption_router": model.info(),
-        "diffusion_lora": diffusion_generator.info(),
+        "diffusion_model": diffusion_generator.info(),
     }
 
 

@@ -15,7 +15,8 @@ from .database import (
     insert_generation,
     update_generation_job_progress,
 )
-from .diffusion_runtime import DiffusionLoraGenerator
+from .diffusion_runtime import DiffusionGenerator
+from .storage import ObjectStorage
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -23,15 +24,12 @@ logger = logging.getLogger("generation-worker")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DIFFUSION_BASE_MODEL = os.getenv("DIFFUSION_BASE_MODEL", "segmind/tiny-sd")
-LORA_ADAPTER_PATH = Path(
-    os.getenv(
-        "LORA_ADAPTER_PATH",
-        REPO_ROOT / "lora_experiment" / "artifacts" / "lora_ab_cc_seed_60steps_clip" / "runs" / "seed_plus_synthetic" / "adapters",
-    )
-)
+ADAPTER_PATH_ENV = os.getenv("DIFFUSION_ADAPTER_PATH") or os.getenv("LORA_ADAPTER_PATH")
+DIFFUSION_ADAPTER_PATH = Path(ADAPTER_PATH_ENV) if ADAPTER_PATH_ENV else None
 GENERATION_OUTPUT_DIR = Path(os.getenv("GENERATION_OUTPUT_DIR", REPO_ROOT / "generated_outputs"))
 DIFFUSION_DEVICE = os.getenv("DIFFUSION_DEVICE", "auto")
 POLL_SECONDS = float(os.getenv("GENERATION_WORKER_POLL_SECONDS", "2"))
+object_storage = ObjectStorage()
 
 TOPIC_TRANSLATIONS = {
     "мебель": "furniture",
@@ -91,6 +89,7 @@ def write_manifest(job) -> str:
         "base_model_checkpoint",
         "lora_adapter_path",
         "output_path",
+        "output_object_uri",
         "width",
         "height",
         "num_inference_steps",
@@ -113,6 +112,7 @@ def write_manifest(job) -> str:
                     "base_model_checkpoint": row["base_model_checkpoint"],
                     "lora_adapter_path": row["lora_adapter_path"],
                     "output_path": row["output_path"],
+                    "output_object_uri": row["output_object_uri"],
                     "width": row["width"],
                     "height": row["height"],
                     "num_inference_steps": row["num_inference_steps"],
@@ -124,7 +124,18 @@ def write_manifest(job) -> str:
     return str(manifest_path)
 
 
-def process_job(generator: DiffusionLoraGenerator, job):
+def upload_generation_artifact(result, job_id: str) -> str | None:
+    file_name = Path(result.output_path).name
+    object_key = f"{object_storage.prefix}/jobs/{job_id}/images/{file_name}"
+    return object_storage.upload_bytes(result.image_bytes, object_key, "image/png")
+
+
+def upload_manifest_artifact(manifest_path: str, job_id: str) -> str | None:
+    object_key = f"{object_storage.prefix}/jobs/{job_id}/manifest/{Path(manifest_path).name}"
+    return object_storage.upload_file(manifest_path, object_key, "text/csv")
+
+
+def process_job(generator: DiffusionGenerator, job):
     prompts = build_topic_prompts(job["topic"], job["count_requested"])
     logger.info(json.dumps({"event": "job_started", "job_id": job["job_id"], "count": len(prompts)}, ensure_ascii=False))
 
@@ -148,6 +159,7 @@ def process_job(generator: DiffusionLoraGenerator, job):
             batch_id=job["job_id"],
             topic=job["topic"],
             source="async_job",
+            output_object_uri=upload_generation_artifact(result, job["job_id"]),
         )
         update_generation_job_progress(job["job_id"], index + 1)
         logger.info(
@@ -163,16 +175,17 @@ def process_job(generator: DiffusionLoraGenerator, job):
         )
 
     manifest_path = write_manifest(job)
-    complete_generation_job(job["job_id"], manifest_path)
+    manifest_object_uri = upload_manifest_artifact(manifest_path, job["job_id"])
+    complete_generation_job(job["job_id"], manifest_path, manifest_object_uri=manifest_object_uri)
     logger.info(json.dumps({"event": "job_done", "job_id": job["job_id"], "manifest_path": manifest_path}, ensure_ascii=False))
 
 
 def main():
     worker_id = os.getenv("GENERATION_WORKER_ID", f"{socket.gethostname()}-{os.getpid()}")
     init_db()
-    generator = DiffusionLoraGenerator(
+    generator = DiffusionGenerator(
         base_model_id=DIFFUSION_BASE_MODEL,
-        lora_adapter_path=LORA_ADAPTER_PATH,
+        adapter_path=DIFFUSION_ADAPTER_PATH,
         output_dir=GENERATION_OUTPUT_DIR,
         device=DIFFUSION_DEVICE,
     )

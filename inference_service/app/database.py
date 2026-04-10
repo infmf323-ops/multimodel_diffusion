@@ -99,6 +99,7 @@ def init_db():
                     base_model_checkpoint TEXT NOT NULL,
                     lora_adapter_path TEXT NOT NULL,
                     output_path TEXT NOT NULL,
+                    output_object_uri TEXT,
                     width INTEGER NOT NULL,
                     height INTEGER NOT NULL,
                     num_inference_steps INTEGER NOT NULL,
@@ -131,6 +132,7 @@ def init_db():
                     base_model_checkpoint TEXT NOT NULL,
                     lora_adapter_path TEXT NOT NULL,
                     manifest_path TEXT,
+                    manifest_object_uri TEXT,
                     error TEXT,
                     metadata JSONB NOT NULL DEFAULT '{}'::jsonb
                 );
@@ -139,6 +141,8 @@ def init_db():
             cur.execute("ALTER TABLE generation_requests ADD COLUMN IF NOT EXISTS batch_id TEXT;")
             cur.execute("ALTER TABLE generation_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'single_prompt';")
             cur.execute("ALTER TABLE generation_requests ADD COLUMN IF NOT EXISTS topic TEXT;")
+            cur.execute("ALTER TABLE generation_requests ADD COLUMN IF NOT EXISTS output_object_uri TEXT;")
+            cur.execute("ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS manifest_object_uri TEXT;")
         conn.commit()
 
 
@@ -284,16 +288,25 @@ def fetch_synthetic_dataset_samples(limit: int = 20):
     ]
 
 
-def insert_generation(prompt, negative_prompt, result, latency_ms, batch_id=None, topic=None, source="single_prompt"):
+def insert_generation(
+    prompt,
+    negative_prompt,
+    result,
+    latency_ms,
+    batch_id=None,
+    topic=None,
+    source="single_prompt",
+    output_object_uri=None,
+):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO generation_requests (
                     batch_id, source, topic, prompt, negative_prompt, seed, base_model_checkpoint, lora_adapter_path,
-                    output_path, width, height, num_inference_steps, guidance_scale, device, latency_ms
+                    output_path, output_object_uri, width, height, num_inference_steps, guidance_scale, device, latency_ms
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id;
                 """,
                 (
@@ -306,6 +319,7 @@ def insert_generation(prompt, negative_prompt, result, latency_ms, batch_id=None
                     result.model_id,
                     result.lora_adapter_path,
                     result.output_path,
+                    output_object_uri,
                     result.width,
                     result.height,
                     result.num_inference_steps,
@@ -343,8 +357,9 @@ def _job_to_dict(row):
         "base_model_checkpoint": row[17],
         "lora_adapter_path": row[18],
         "manifest_path": row[19],
-        "error": row[20],
-        "metadata": row[21],
+        "manifest_object_uri": row[20],
+        "error": row[21],
+        "metadata": row[22],
     }
 
 
@@ -352,14 +367,14 @@ JOB_COLUMNS = """
     job_id, created_at, updated_at, started_at, finished_at, status, worker_id,
     topic, count_requested, count_generated, preview_limit, negative_prompt,
     base_seed, width, height, num_inference_steps, guidance_scale,
-    base_model_checkpoint, lora_adapter_path, manifest_path, error, metadata
+    base_model_checkpoint, lora_adapter_path, manifest_path, manifest_object_uri, error, metadata
 """
 
 JOB_COLUMNS_FROM_JOB_ALIAS = """
     job.job_id, job.created_at, job.updated_at, job.started_at, job.finished_at, job.status, job.worker_id,
     job.topic, job.count_requested, job.count_generated, job.preview_limit, job.negative_prompt,
     job.base_seed, job.width, job.height, job.num_inference_steps, job.guidance_scale,
-    job.base_model_checkpoint, job.lora_adapter_path, job.manifest_path, job.error, job.metadata
+    job.base_model_checkpoint, job.lora_adapter_path, job.manifest_path, job.manifest_object_uri, job.error, job.metadata
 """
 
 
@@ -454,7 +469,7 @@ def update_generation_job_progress(job_id, count_generated):
         conn.commit()
 
 
-def complete_generation_job(job_id, manifest_path):
+def complete_generation_job(job_id, manifest_path, manifest_object_uri=None):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -464,11 +479,12 @@ def complete_generation_job(job_id, manifest_path):
                     finished_at = NOW(),
                     updated_at = NOW(),
                     manifest_path = %s,
+                    manifest_object_uri = %s,
                     error = NULL
                 WHERE job_id = %s
                 RETURNING {JOB_COLUMNS};
                 """,
-                (manifest_path, job_id),
+                (manifest_path, manifest_object_uri, job_id),
             )
             row = cur.fetchone()
         conn.commit()
@@ -533,7 +549,7 @@ def fetch_generations_by_batch(batch_id, limit=1000):
                 """
                 SELECT
                     id, created_at, batch_id, source, topic, prompt, negative_prompt,
-                    seed, base_model_checkpoint, lora_adapter_path, output_path, width,
+                    seed, base_model_checkpoint, lora_adapter_path, output_path, output_object_uri, width,
                     height, num_inference_steps, guidance_scale, device, latency_ms
                 FROM generation_requests
                 WHERE batch_id = %s
@@ -554,7 +570,7 @@ def fetch_generation_by_id(generation_id):
                 """
                 SELECT
                     id, created_at, batch_id, source, topic, prompt, negative_prompt,
-                    seed, base_model_checkpoint, lora_adapter_path, output_path, width,
+                    seed, base_model_checkpoint, lora_adapter_path, output_path, output_object_uri, width,
                     height, num_inference_steps, guidance_scale, device, latency_ms
                 FROM generation_requests
                 WHERE id = %s;
@@ -579,12 +595,13 @@ def _generation_to_dict(row):
         "base_model_checkpoint": row[8],
         "lora_adapter_path": row[9],
         "output_path": row[10],
-        "width": row[11],
-        "height": row[12],
-        "num_inference_steps": row[13],
-        "guidance_scale": float(row[14]),
-        "device": row[15],
-        "latency_ms": float(row[16]),
+        "output_object_uri": row[11],
+        "width": row[12],
+        "height": row[13],
+        "num_inference_steps": row[14],
+        "guidance_scale": float(row[15]),
+        "device": row[16],
+        "latency_ms": float(row[17]),
     }
 
 
@@ -595,7 +612,7 @@ def fetch_recent_generations(limit: int = 20):
                 """
                 SELECT
                     id, created_at, batch_id, source, topic, prompt, negative_prompt,
-                    seed, base_model_checkpoint, lora_adapter_path, output_path, width,
+                    seed, base_model_checkpoint, lora_adapter_path, output_path, output_object_uri, width,
                     height, num_inference_steps, guidance_scale, device, latency_ms
                 FROM generation_requests
                 ORDER BY created_at DESC

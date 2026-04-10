@@ -4,6 +4,7 @@ psycopg[binary]==3.2.6
 prometheus-client==0.21.1
 numpy==2.2.6
 pillow==12.2.0
+boto3==1.42.1
 diffusers==0.37.1
 transformers==5.5.3
 accelerate==1.13.0

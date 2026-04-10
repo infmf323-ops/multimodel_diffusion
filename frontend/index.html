@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multimodal Diffusion LoRA Service</title>
-  <link rel="stylesheet" href="styles.css?v=jobs-20260410">
+  <title>Multimodal Diffusion Dataset Service</title>
+  <link rel="stylesheet" href="styles.css?v=dataset-20260411">
 </head>
 <body>
   <main class="page">
     <section class="hero">
       <p class="eyebrow">Lab 4 Demo</p>
-      <h1>Multimodal Diffusion LoRA Service</h1>
+      <h1>Multimodal Diffusion Dataset Service</h1>
       <p class="lead">
-        Контейнерный ML-сервис для генерации изображений через финальный LoRA adapter из ЛР3:
-        base model <code>segmind/tiny-sd</code> + adapter <code>seed_plus_synthetic</code>.
-        Рядом доступны история запросов, PostgreSQL, MinIO и Prometheus monitoring.
+        Контейнерный ML-сервис для генерации и анализа синтетического мультимодального датасета.
+        Базовая diffusion-модель <code>segmind/tiny-sd</code> используется для одиночной генерации и batch job по теме;
+        рядом доступны история запросов, PostgreSQL, MinIO и Prometheus monitoring.
       </p>
       <div class="badges">
         <span id="health-badge" class="badge muted">Проверка health...</span>
@@ -26,7 +26,7 @@
 
     <section class="grid">
       <article class="card">
-        <h2>Генерация через LoRA</h2>
+        <h2>Генерация одного изображения</h2>
         <label for="prompt-input">Prompt</label>
         <textarea id="prompt-input" rows="5">a cozy modern living room with a fireplace and warm evening light</textarea>
         <button id="generate-btn">Сгенерировать изображение</button>
@@ -56,7 +56,7 @@
 
       <article class="card full">
         <div class="card-header">
-          <h2>История LoRA-генераций</h2>
+          <h2>История diffusion-генераций</h2>
           <button id="refresh-generations-btn" class="secondary">Обновить</button>
         </div>
         <div id="generations-output" class="table-wrap">Загрузка...</div>
@@ -80,6 +80,6 @@
     </section>
   </main>
 
-  <script src="app.js?v=jobs-20260410"></script>
+  <script src="app.js?v=dataset-20260411"></script>
 </body>
 </html>

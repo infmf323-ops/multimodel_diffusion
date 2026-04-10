@@ -41,7 +41,7 @@ async function fetchJson(path, options = {}) {
 async function loadHealth() {
   try {
     const data = await fetchJson("/health");
-    const diffusionState = data.diffusion_model_loaded ? "LoRA loaded" : "LoRA lazy";
+    const diffusionState = data.diffusion_model_loaded ? "diffusion loaded" : "diffusion lazy";
     healthBadge.textContent = data.status === "ok" ? `Сервис доступен, ${diffusionState}` : "Сервис в degraded режиме";
     healthBadge.className = `badge ${data.status === "ok" ? "ok" : "fail"}`;
   } catch (error) {
@@ -73,6 +73,7 @@ async function generateImage() {
         seed: data.seed,
         latency_ms: data.latency_ms,
         base_model_checkpoint: data.base_model_checkpoint,
+        adapter_path: data.adapter_path,
         lora_adapter_path: data.lora_adapter_path,
         output_path: data.output_path,
       }, null, 2)}</pre>
@@ -119,7 +120,7 @@ function renderGenerationJob(job) {
 
   batchGenerationOutput.innerHTML = `
     <p>Status: <strong>${job.status}</strong>. Progress: ${job.progress.generated}/${job.progress.requested} (${job.progress.percent}%).</p>
-    <p>Job/Batch ID для дальнейшего дообучения: <code>${job.job_id}</code>. Тема: <strong>${job.topic}</strong>.</p>
+    <p>Job/Batch ID серии: <code>${job.job_id}</code>. Тема: <strong>${job.topic}</strong>.</p>
     ${manifestLink}
     <div class="batch-grid">${previewCards || "<p>Preview появятся после первых сгенерированных изображений.</p>"}</div>
     <div class="table-wrap">${metadataTable}</div>
@@ -160,10 +161,10 @@ async function generateBatch() {
       body: JSON.stringify({
         topic: topicInput.value,
         count,
-        width: 256,
-        height: 256,
-        num_inference_steps: 12,
-        guidance_scale: 5.0,
+        width: 320,
+        height: 320,
+        num_inference_steps: 22,
+        guidance_scale: 7.5,
         preview_limit: 5,
       }),
     });

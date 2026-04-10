@@ -21,16 +21,16 @@ class GenerationResult:
     guidance_scale: float
 
 
-class DiffusionLoraGenerator:
+class DiffusionGenerator:
     def __init__(
         self,
         base_model_id: str,
-        lora_adapter_path: Path,
+        adapter_path: Path | None,
         output_dir: Path,
         device: str = "auto",
     ):
         self.base_model_id = base_model_id
-        self.lora_adapter_path = Path(lora_adapter_path)
+        self.adapter_path = Path(adapter_path) if adapter_path else None
         self.output_dir = Path(output_dir)
         self.requested_device = device
         self._pipe = None
@@ -42,7 +42,8 @@ class DiffusionLoraGenerator:
     def info(self) -> dict:
         return {
             "base_model_id": self.base_model_id,
-            "lora_adapter_path": str(self.lora_adapter_path),
+            "adapter_path": str(self.adapter_path) if self.adapter_path else None,
+            "lora_adapter_path": str(self.adapter_path) if self.adapter_path else "",
             "output_dir": str(self.output_dir),
             "device": self._device or self.requested_device,
             "loaded": self.is_loaded(),
@@ -51,9 +52,6 @@ class DiffusionLoraGenerator:
     def _load(self):
         if self._pipe is not None:
             return
-
-        if not self.lora_adapter_path.exists():
-            raise FileNotFoundError(f"LoRA adapter path does not exist: {self.lora_adapter_path}")
 
         import torch
         from diffusers import StableDiffusionPipeline
@@ -70,7 +68,10 @@ class DiffusionLoraGenerator:
             safety_checker=None,
             requires_safety_checker=False,
         )
-        pipe.load_lora_weights(str(self.lora_adapter_path))
+        if self.adapter_path:
+            if not self.adapter_path.exists():
+                raise FileNotFoundError(f"Diffusion adapter path does not exist: {self.adapter_path}")
+            pipe.load_lora_weights(str(self.adapter_path))
         pipe = pipe.to(device)
 
         self._pipe = pipe
@@ -116,7 +117,7 @@ class DiffusionLoraGenerator:
             seed=seed,
             device=self._device,
             model_id=self.base_model_id,
-            lora_adapter_path=str(self.lora_adapter_path),
+            lora_adapter_path=str(self.adapter_path) if self.adapter_path else "",
             width=width,
             height=height,
             num_inference_steps=num_inference_steps,
@@ -126,7 +127,7 @@ class DiffusionLoraGenerator:
     def _save_image(self, prompt: str, seed: int, image_bytes: bytes) -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:10]
-        output_path = self.output_dir / f"lora_generation_{int(time.time())}_{seed}_{prompt_hash}.png"
+        output_path = self.output_dir / f"diffusion_generation_{int(time.time())}_{seed}_{prompt_hash}.png"
         output_path.write_bytes(image_bytes)
         return output_path
 
@@ -135,3 +136,6 @@ class DiffusionLoraGenerator:
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return buffer.getvalue()
+
+
+DiffusionLoraGenerator = DiffusionGenerator
