@@ -1,0 +1,16 @@
+{
+  "run_name": "seed_only",
+  "base_model": "segmind/tiny-sd",
+  "train_size": 48,
+  "val_size": 8,
+  "train_steps": 60,
+  "batch_size": 1,
+  "learning_rate": 0.0001,
+  "lora_rank": 4,
+  "lora_alpha": 4,
+  "final_train_loss": 0.004855,
+  "mean_train_loss": 0.171199,
+  "val_denoising_loss": 0.237112,
+  "elapsed_seconds": 6.252,
+  "adapter_dir": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\runs\\seed_only\\adapters"
+}

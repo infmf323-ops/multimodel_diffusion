@@ -1,0 +1,6 @@
+.tmp*/
+artifacts/cache/
+artifacts/runs/*/adapters/
+artifacts/smoke/
+artifacts/lora_ab_proxy_30steps/
+artifacts/lora_ab_proxy_30steps_clip/

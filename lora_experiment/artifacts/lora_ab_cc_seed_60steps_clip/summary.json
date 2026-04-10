@@ -1,0 +1,149 @@
+{
+  "config": {
+    "base_model": "segmind/tiny-sd",
+    "output_dir": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip",
+    "synthetic_manifest": "D:\\pet's proektsii\\multimodel_diffusion_push\\synthetic_dataset\\synthetic_manifest.csv",
+    "seed_manifest": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\seed_manifest.csv",
+    "allow_proxy_seed": false,
+    "split_seed": 20260410,
+    "eval_seed": 20260420,
+    "resolution": 256,
+    "train_steps": 60,
+    "eval_steps": 12,
+    "batch_size": 1,
+    "learning_rate": 0.0001,
+    "lora_rank": 4,
+    "lora_alpha": 4,
+    "guidance_scale": 7.0,
+    "max_eval_prompts": 8,
+    "clip_model": "openai/clip-vit-base-patch32",
+    "no_clip": false,
+    "skip_training": false,
+    "proxy_seed_train_size": 24,
+    "proxy_val_size": 8,
+    "proxy_test_size": 8
+  },
+  "device": "cuda",
+  "data": {
+    "proxy_mode": false,
+    "seed_train_size": 48,
+    "synthetic_train_size": 50,
+    "seed_plus_synthetic_train_size": 98,
+    "val_size": 8,
+    "test_size": 8
+  },
+  "train_summaries": {
+    "seed_only": {
+      "run_name": "seed_only",
+      "base_model": "segmind/tiny-sd",
+      "train_size": 48,
+      "val_size": 8,
+      "train_steps": 60,
+      "batch_size": 1,
+      "learning_rate": 0.0001,
+      "lora_rank": 4,
+      "lora_alpha": 4,
+      "final_train_loss": 0.004855,
+      "mean_train_loss": 0.171199,
+      "val_denoising_loss": 0.237112,
+      "elapsed_seconds": 6.252,
+      "adapter_dir": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\runs\\seed_only\\adapters"
+    },
+    "seed_plus_synthetic": {
+      "run_name": "seed_plus_synthetic",
+      "base_model": "segmind/tiny-sd",
+      "train_size": 98,
+      "val_size": 8,
+      "train_steps": 60,
+      "batch_size": 1,
+      "learning_rate": 0.0001,
+      "lora_rank": 4,
+      "lora_alpha": 4,
+      "final_train_loss": 0.008755,
+      "mean_train_loss": 0.190538,
+      "val_denoising_loss": 0.072137,
+      "elapsed_seconds": 6.1,
+      "adapter_dir": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\runs\\seed_plus_synthetic\\adapters"
+    }
+  },
+  "metrics": {
+    "clip_model": "openai/clip-vit-base-patch32",
+    "clip_load_error": null,
+    "runs": {
+      "seed_only": {
+        "clip_text_image_mean": 0.26917,
+        "clip_text_image_scores": [
+          0.266174,
+          0.28299,
+          0.288804,
+          0.290221,
+          0.276367,
+          0.267352,
+          0.256626,
+          0.22483
+        ],
+        "clip_kid_proxy": 0.00051785,
+        "diversity_score": 0.426146,
+        "duplicate_rate": 0.0,
+        "technical_image_score_mean": 0.7461,
+        "latency_seconds_mean": 0.3865
+      },
+      "seed_plus_synthetic": {
+        "clip_text_image_mean": 0.271936,
+        "clip_text_image_scores": [
+          0.262563,
+          0.248571,
+          0.312558,
+          0.298331,
+          0.279259,
+          0.273733,
+          0.26781,
+          0.232666
+        ],
+        "clip_kid_proxy": 0.00051403,
+        "diversity_score": 0.437324,
+        "duplicate_rate": 0.0,
+        "technical_image_score_mean": 0.7358,
+        "latency_seconds_mean": 0.3885
+      }
+    }
+  },
+  "comparison": {
+    "clip_text_image_mean": {
+      "seed_only": 0.26917,
+      "seed_plus_synthetic": 0.271936,
+      "delta": 0.002766,
+      "direction": "higher_is_better"
+    },
+    "clip_kid_proxy": {
+      "seed_only": 0.00051785,
+      "seed_plus_synthetic": 0.00051403,
+      "delta": -4e-06,
+      "direction": "lower_is_better"
+    },
+    "diversity_score": {
+      "seed_only": 0.426146,
+      "seed_plus_synthetic": 0.437324,
+      "delta": 0.011178,
+      "direction": "higher_is_better_until_too_high"
+    },
+    "duplicate_rate": {
+      "seed_only": 0.0,
+      "seed_plus_synthetic": 0.0,
+      "delta": 0.0,
+      "direction": "lower_is_better"
+    },
+    "technical_image_score_mean": {
+      "seed_only": 0.7461,
+      "seed_plus_synthetic": 0.7358,
+      "delta": -0.0103,
+      "direction": "higher_is_better"
+    },
+    "latency_seconds_mean": {
+      "seed_only": 0.3865,
+      "seed_plus_synthetic": 0.3885,
+      "delta": 0.002,
+      "direction": "lower_is_better"
+    }
+  }
+}

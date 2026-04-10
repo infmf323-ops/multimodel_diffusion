@@ -1,0 +1,9 @@
+{
+  "proxy_mode": false,
+  "seed_train_size": 48,
+  "synthetic_train_size": 50,
+  "seed_plus_synthetic_train_size": 98,
+  "val_size": 8,
+  "test_size": 8,
+  "manifest_dir": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\manifests"
+}

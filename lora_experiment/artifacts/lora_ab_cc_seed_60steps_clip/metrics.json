@@ -1,0 +1,42 @@
+{
+  "clip_model": "openai/clip-vit-base-patch32",
+  "clip_load_error": null,
+  "runs": {
+    "seed_only": {
+      "clip_text_image_mean": 0.26917,
+      "clip_text_image_scores": [
+        0.266174,
+        0.28299,
+        0.288804,
+        0.290221,
+        0.276367,
+        0.267352,
+        0.256626,
+        0.22483
+      ],
+      "clip_kid_proxy": 0.00051785,
+      "diversity_score": 0.426146,
+      "duplicate_rate": 0.0,
+      "technical_image_score_mean": 0.7461,
+      "latency_seconds_mean": 0.3865
+    },
+    "seed_plus_synthetic": {
+      "clip_text_image_mean": 0.271936,
+      "clip_text_image_scores": [
+        0.262563,
+        0.248571,
+        0.312558,
+        0.298331,
+        0.279259,
+        0.273733,
+        0.26781,
+        0.232666
+      ],
+      "clip_kid_proxy": 0.00051403,
+      "diversity_score": 0.437324,
+      "duplicate_rate": 0.0,
+      "technical_image_score_mean": 0.7358,
+      "latency_seconds_mean": 0.3885
+    }
+  }
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "cc_seed_0014",
+    "prompt": "dunes lay the blueprint for the back nine .",
+    "reference_image_path": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images\\cc_seed_0014.jpg",
+    "generated_image_path": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\eval\\seed_only\\001_cc_seed_0014.png",
+    "seed": 20260420,
+    "latency_seconds": 0.4833,
+    "technical_image_score": 0.389
+  },
+  {
+    "id": "cc_seed_0007",
+    "prompt": "# of the sports team skates against sports team during their game .",
+    "reference_image_path": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images\\cc_seed_0007.jpg",
+    "generated_image_path": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\eval\\seed_only\\002_cc_seed_0007.png",
+    "seed": 20260421,
+    "latency_seconds": 0.3528,
+    "technical_image_score": 0.972
+  },
+  {
+    "id": "cc_seed_0054",
+    "prompt": "a very simplified location and geological map of the area and adjacent coast",
+    "reference_image_path": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images\\cc_seed_0054.jpg",
+    "generated_image_path": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\eval\\seed_only\\003_cc_seed_0054.png",
+    "seed": 20260422,
+    "latency_seconds": 0.3546,
+    "technical_image_score": 0.747
+  },
+  {
+    "id": "cc_seed_0056",
+    "prompt": "farm tractor is moving on the field , cultivating land",
+    "reference_image_path": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images\\cc_seed_0056.jpg",
+    "generated_image_path": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\eval\\seed_only\\004_cc_seed_0056.png",
+    "seed": 20260423,
+    "latency_seconds": 0.3522,
+    "technical_image_score": 0.691
+  },
+  {
+    "id": "cc_seed_0036",
+    "prompt": "river as it meets bodies of water where airline meets",
+    "reference_image_path": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images\\cc_seed_0036.jpg",
+    "generated_image_path": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\eval\\seed_only\\005_cc_seed_0036.png",
+    "seed": 20260424,
+    "latency_seconds": 0.3686,
+    "technical_image_score": 0.871
+  },
+  {
+    "id": "cc_seed_0008",
+    "prompt": "a flight was traveling when the animal got free on tuesday night",
+    "reference_image_path": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images\\cc_seed_0008.jpg",
+    "generated_image_path": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\eval\\seed_only\\006_cc_seed_0008.png",
+    "seed": 20260425,
+    "latency_seconds": 0.367,
+    "technical_image_score": 0.861
+  },
+  {
+    "id": "cc_seed_0022",
+    "prompt": "racecar driver steers his car during video game subject .",
+    "reference_image_path": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images\\cc_seed_0022.jpg",
+    "generated_image_path": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\eval\\seed_only\\007_cc_seed_0022.png",
+    "seed": 20260426,
+    "latency_seconds": 0.3781,
+    "technical_image_score": 0.783
+  },
+  {
+    "id": "cc_seed_0010",
+    "prompt": "functions of government : 1 . form a more perfect union",
+    "reference_image_path": "lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images\\cc_seed_0010.jpg",
+    "generated_image_path": "lora_experiment\\artifacts\\lora_ab_cc_seed_60steps_clip\\eval\\seed_only\\008_cc_seed_0010.png",
+    "seed": 20260427,
+    "latency_seconds": 0.4351,
+    "technical_image_score": 0.655
+  }
+]

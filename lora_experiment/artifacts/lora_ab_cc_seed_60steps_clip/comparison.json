@@ -1,0 +1,38 @@
+{
+  "clip_text_image_mean": {
+    "seed_only": 0.26917,
+    "seed_plus_synthetic": 0.271936,
+    "delta": 0.002766,
+    "direction": "higher_is_better"
+  },
+  "clip_kid_proxy": {
+    "seed_only": 0.00051785,
+    "seed_plus_synthetic": 0.00051403,
+    "delta": -4e-06,
+    "direction": "lower_is_better"
+  },
+  "diversity_score": {
+    "seed_only": 0.426146,
+    "seed_plus_synthetic": 0.437324,
+    "delta": 0.011178,
+    "direction": "higher_is_better_until_too_high"
+  },
+  "duplicate_rate": {
+    "seed_only": 0.0,
+    "seed_plus_synthetic": 0.0,
+    "delta": 0.0,
+    "direction": "lower_is_better"
+  },
+  "technical_image_score_mean": {
+    "seed_only": 0.7461,
+    "seed_plus_synthetic": 0.7358,
+    "delta": -0.0103,
+    "direction": "higher_is_better"
+  },
+  "latency_seconds_mean": {
+    "seed_only": 0.3865,
+    "seed_plus_synthetic": 0.3885,
+    "delta": 0.002,
+    "direction": "lower_is_better"
+  }
+}

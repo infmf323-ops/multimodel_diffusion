@@ -1,0 +1,8 @@
+{
+  "dataset_id": "pasindu/google_conceptual_captions_20000",
+  "split": "train",
+  "num_samples": 64,
+  "manifest_path": "D:\\pet's proektsii\\multimodel_diffusion_push\\lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\seed_manifest.csv",
+  "images_dir": "D:\\pet's proektsii\\multimodel_diffusion_push\\lora_experiment\\seed_dataset\\google_conceptual_captions_20000\\images",
+  "note": "Local seed image-caption subset for LoRA A/B experiment."
+}

@@ -1,0 +1,9 @@
+id,prompt,image_path,resolved_image_path,domain_tag,source_type,split
+cc_seed_0014,dunes lay the blueprint for the back nine .,images/cc_seed_0014.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0014.jpg,,,test
+cc_seed_0007,# of the sports team skates against sports team during their game .,images/cc_seed_0007.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0007.jpg,,,test
+cc_seed_0054,a very simplified location and geological map of the area and adjacent coast,images/cc_seed_0054.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0054.jpg,,,test
+cc_seed_0056,"farm tractor is moving on the field , cultivating land",images/cc_seed_0056.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0056.jpg,,,test
+cc_seed_0036,river as it meets bodies of water where airline meets,images/cc_seed_0036.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0036.jpg,,,test
+cc_seed_0008,a flight was traveling when the animal got free on tuesday night,images/cc_seed_0008.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0008.jpg,,,test
+cc_seed_0022,racecar driver steers his car during video game subject .,images/cc_seed_0022.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0022.jpg,,,test
+cc_seed_0010,functions of government : 1 . form a more perfect union,images/cc_seed_0010.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0010.jpg,,,test

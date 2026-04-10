@@ -22,13 +22,16 @@ docker compose up --build
 - UI: `http://localhost:3000`
 - Inference API: `http://localhost:8000`
 - Swagger UI: `http://localhost:8000/docs`
+- MinIO API: `http://localhost:9000`
+- MinIO Console: `http://localhost:9001`
 - Prometheus: `http://localhost:9090`
 
 ### Что поднимается
 
 - `frontend` — веб-интерфейс для отправки caption и просмотра результатов;
-- `inference-service` — FastAPI-сервис с финальной моделью ЛР3;
+- `inference-service` — FastAPI-сервис для демонстрационного inference API, мониторинга и просмотра артефактов synthetic/LoRA pipeline;
 - `postgres` — база данных для хранения истории предсказаний;
+- `minio` — S3-compatible object storage для изображений, manifest, preview и ссылок на model artifact;
 - `prometheus` — сбор метрик `/metrics`.
 
 ## Примеры использования
@@ -53,6 +56,13 @@ curl "http://localhost:8000/history?limit=10"
 curl "http://localhost:8000/experiments/summary"
 ```
 
+### Просмотр синтетического датасета через API
+
+```bash
+curl "http://localhost:8000/synthetic-dataset/runs?limit=1"
+curl "http://localhost:8000/synthetic-dataset/samples?limit=5"
+```
+
 ## Ссылки на диаграммы и документацию
 
 - ЛР1, high-level workflow: [lr1_workflow_diagram.png](lr1_workflow_diagram.png)
@@ -60,6 +70,37 @@ curl "http://localhost:8000/experiments/summary"
 - ЛР2, обновлённая архитектура: [lr2_architecture_diagram.png](lr2_architecture_diagram.png)
 - ЛР2, обновлённый workflow: [lr2_workflow_diagram.png](lr2_workflow_diagram.png)
 - ЛР4, финальная demo-архитектура: [lr4_deployment_diagram.png](lr4_deployment_diagram.png)
+
+## Демонстрационный синтетический датасет
+
+Для проекта добавлен небольшой synthetic dataset artifact, сгенерированный реальной text-to-image diffusion-моделью:
+
+- manifest: [synthetic_manifest.csv](synthetic_dataset/synthetic_manifest.csv)
+- изображения: [synthetic_dataset/images](synthetic_dataset/images)
+- статистика: [synthetic_stats.json](synthetic_dataset/synthetic_stats.json)
+- preview: [synthetic_dataset_preview.png](synthetic_dataset/synthetic_dataset_preview.png)
+- скрипт генерации: [generate_diffusion_dataset.py](synthetic_dataset/generate_diffusion_dataset.py)
+- зависимости генерации: [requirements-diffusion.txt](synthetic_dataset/requirements-diffusion.txt)
+
+Важно: текущие изображения в `synthetic_dataset/images/` являются **настоящими diffusion outputs**: они сгенерированы через `diffusers.StableDiffusionPipeline` из checkpoint `segmind/tiny-sd` по текстовым prompts. Для воспроизводимости в manifest сохранены `seed`, `base_model_checkpoint`, `num_inference_steps`, `guidance_scale`, `resolution`, `generation_prompt` и `negative_prompt`. Старый программный генератор оставлен только как fallback/черновой вариант, а не как основной датасет проекта.
+
+Перегенерировать датасет можно так:
+
+```bash
+python -m venv .venv-diffusion
+.venv-diffusion\Scripts\python -m pip install -r synthetic_dataset\requirements-diffusion.txt
+.venv-diffusion\Scripts\python synthetic_dataset\generate_diffusion_dataset.py
+```
+
+Синхронизация с хранилищами по архитектуре:
+
+```bash
+docker compose up -d postgres minio
+.venv-diffusion\Scripts\python -m pip install -r synthetic_dataset\requirements-storage.txt
+.venv-diffusion\Scripts\python synthetic_dataset\sync_to_architecture_storage.py
+```
+
+После синхронизации бинарные артефакты лежат в MinIO bucket `synthetic-datasets` по префиксу `datasets/diffusion-demo-20260410/`, а текстовые метаданные и ссылки на них лежат в PostgreSQL в таблицах `synthetic_dataset_runs` и `synthetic_dataset_samples`. Для локального стенда сам тяжёлый checkpoint не копируется в MinIO: в object storage сохраняется `model_refs/segmind_tiny_sd.json` с воспроизводимой ссылкой на Hugging Face model id `segmind/tiny-sd`, а локальные веса остаются в `hf_cache/`.
 
 ## Шаг 1. Выбор темы
 
@@ -755,37 +796,65 @@ Diffusion-модель может генерировать очень похож
 
 ### Что именно моделируется в рамках ЛР3
 
-Так как основная система посвящена генерации синтетических мультимодальных датасетов и дообучению diffusion-моделей, в данной лабораторной реализована **вспомогательная production-ready ML-модель сервиса**: лёгкий классификатор caption, который автоматически предсказывает `domain_tag` по текстовому описанию. Такая модель нужна в сервисе для:
+В актуальной версии ЛР3 моделируется **целевой эксперимент проекта**, а не вспомогательная caption-router модель. Мы проверяем исходную гипотезу: если расширить реальный `image + caption` seed dataset синтетическими парами `text + image`, то LoRA-дообучение diffusion-модели должно дать не хуже, а местами лучше качество генерации на одинаковых test prompts.
 
-- маршрутизации промптов по доменным корзинам;
-- балансировки train-ready датасета;
-- быстрого quality control до запуска тяжёлой генерации и fine-tuning.
+Схема эксперимента:
 
-В результате ЛР3 реализуется не сама diffusion-модель, а лёгкий inference-модуль, который реалистично можно встроить в backend сервиса.
+1. Берём реальный seed image-caption dataset.
+2. Делим его на `train / validation / test`.
+3. Дообучаем `LoRA A` на `seed train`.
+4. Генерируем изображения на фиксированных validation/test prompts.
+5. Считаем метрики `LoRA A`.
+6. Берём `seed train + synthetic train`.
+7. Дообучаем `LoRA B` на расширенном train.
+8. Генерируем изображения на тех же prompts и с теми же random seeds.
+9. Считаем метрики `LoRA B`.
+10. Сравниваем `LoRA A` и `LoRA B`.
+
+Именно поэтому в проекте используются diffusion-модели: они являются генератором изображений по тексту и затем сами же дообучаются на подготовленном мультимодальном датасете.
 
 ## Шаг 1. Подготовка данных
 
 ### Использованные данные
 
-Для экспериментов был использован реальный сэмпл из `100` caption датасета **Conceptual Captions**, сохранённый в файле:
+Для финального эксперимента использован настоящий image-caption dataset `pasindu/google_conceptual_captions_20000`. Это Hugging Face-зеркало Conceptual Captions, удобное для локального эксперимента, потому что в нём есть не только подписи, но и реальные изображения в поле `image_data`.
 
-- `lab3/data/conceptual_captions_sample_100.tsv`
+Из него подготовлен seed manifest:
 
-Код подготовки данных и всех дальнейших экспериментов зафиксирован в:
+- `lora_experiment/seed_dataset/google_conceptual_captions_20000/seed_manifest.csv`
+- `lora_experiment/seed_dataset/google_conceptual_captions_20000/images/`
+- `lora_experiment/seed_dataset/google_conceptual_captions_20000/seed_dataset_metadata.json`
 
-- `lab3/run_lab3.py`
+Формат `seed_manifest.csv`:
+
+```csv
+id,prompt,image_path
+cc_seed_0001,a very typical bus station,images/cc_seed_0001.jpg
+```
+
+Также используется созданный в проекте synthetic dataset из `50` настоящих diffusion outputs:
+
+- `synthetic_dataset/synthetic_manifest.csv`
+- `synthetic_dataset/images/`
+- `synthetic_dataset/synthetic_stats.json`
+
+Код подготовки seed dataset и запуска LoRA A/B-эксперимента зафиксирован в:
+
+- `lora_experiment/prepare_seed_dataset.py`
+- `lora_experiment/run_lora_ab_experiment.py`
 
 ### Предобработка
 
 В коде реализованы следующие шаги подготовки:
 
-- загрузка caption из TSV;
-- нормализация текста: lower-case, очистка лишних символов, нормализация пробелов;
-- exact deduplication caption;
-- weak labeling по доменным корзинам `sports`, `people_entertainment`, `animals_nature`, `places_objects`;
-- маскирование самых «протекающих» placeholder-токенов (`person`, `actor`, `artist`, `sports_team`) в признаковом пространстве, чтобы модель не решала задачу слишком тривиально;
-- формирование `group_key` для grouped split;
-- стратифицированное разбиение по группам на `train / val / test`.
+- скачивание и чтение `pasindu/google_conceptual_captions_20000`;
+- сохранение реальных изображений в локальную папку `images/`;
+- нормализация captions в колонку `prompt`;
+- формирование `seed_manifest.csv` с колонками `id`, `prompt`, `image_path`;
+- проверка, что файл изображения действительно существует и открывается;
+- фиксированное разбиение seed dataset на `train / validation / test`;
+- отдельное подключение synthetic dataset только к train-части для варианта `LoRA B`;
+- сохранение всех split manifests в артефактах эксперимента.
 
 ### Стратегия split
 
@@ -793,52 +862,48 @@ Diffusion-модель может генерировать очень похож
 
 Итоговое разбиение:
 
-- `train`: `72` примера
-- `val`: `14` примеров
-- `test`: `14` примеров
+- `seed train`: `48` реальных image-caption примеров
+- `validation`: `8` реальных image-caption примеров
+- `test`: `8` реальных image-caption примеров
+- `synthetic train`: `50` сгенерированных diffusion-примеров, добавляются только в эксперимент `LoRA B`
 
-Распределение классов по всему сэмплу:
-
-- `places_objects`: `39`
-- `people_entertainment`: `30`
-- `animals_nature`: `23`
-- `sports`: `8`
-
-**График распределения классов**
-![Lab 3 class distribution](lab3/artifacts/plots/lab3_class_distribution.png)
+Validation и test не смешиваются с synthetic data, чтобы честно проверить, улучшает ли синтетика качество модели на реальных image-caption примерах.
 
 ### Feature engineering
 
-Помимо TF-IDF признаков, в некоторых экспериментах использовались дополнительные признаки:
+Для diffusion LoRA-эксперимента классический tabular feature engineering не используется. Вместо этого важны входные мультимодальные признаки:
 
-- длина caption в словах;
-- длина caption в символах;
-- наличие `!`;
-- признаки наличия доменных паттернов;
-- признаки placeholder-токенов после нормализации.
+- `prompt` как текстовое условие для text-to-image модели;
+- `image_path` как реальная или синтетическая обучающая картинка;
+- фиксированные `random seeds` для честного сравнения A/B генераций;
+- metadata: источник данных, split, размер изображения, checkpoint базовой модели.
 
 ## Шаг 2. Выбор и реализация baseline-модели
 
 ### Baseline
 
-В качестве baseline выбрана простая модель для текстовой задачи:
+В качестве baseline выбрана `LoRA A`: одна и та же базовая diffusion-модель `segmind/tiny-sd`, дообученная только на `seed train`, без добавления synthetic data.
 
-- **TF-IDF по word unigram**
-- **линейная softmax regression**, реализованная в `numpy`
+Почему это корректный baseline для нашей задачи:
 
-Это соответствует идее «нижней границы качества»: модель лёгкая, быстрая, интерпретируемая и не требует тяжёлых зависимостей.
+- он напрямую соответствует исходной формулировке про дообучение diffusion-моделей;
+- он использует тот же checkpoint, те же hyperparameters и те же test prompts, что и улучшенный вариант;
+- единственное важное отличие от `LoRA B` - отсутствие синтетических примеров в train dataset;
+- поэтому сравнение показывает именно вклад synthetic dataset, а не вклад другой архитектуры или других настроек.
 
 ### Метрики baseline
 
-Результаты baseline-эксперимента:
+Результаты `LoRA A / seed only`:
 
-- `val accuracy`: `0.9286`
-- `val macro F1`: `0.9308`
-- `test accuracy`: `0.6429`
-- `test macro F1`: `0.5110`
-- `latency`: `0.0491 ms` на один caption
+- `CLIPScore`: `0.269170`
+- `CLIP-KID proxy`: `0.00051785`
+- `Diversity score`: `0.426146`
+- `Duplicate rate`: `0.0`
+- `Technical image score`: `0.7461`
+- `Latency`: `0.3865 s`
+- `Validation denoising loss`: `0.237112`
 
-Вывод: baseline оказался достаточно простым, но заметно проседает на тесте, особенно на редких классах. Значит, он подходит как нижняя граница качества, но требует улучшений.
+Вывод: baseline рабочий и достаточно честный, потому что модель действительно дообучается на реальных seed-парах `text + image`, но ещё не использует синтетическое расширение данных.
 
 ## Шаг 3. Настройка экспериментального пайплайна
 
@@ -846,78 +911,82 @@ Diffusion-модель может генерировать очень похож
 
 Для каждого эксперимента логируются:
 
-- параметры модели;
-- тип признаков;
-- значения `accuracy`, `macro precision`, `macro recall`, `macro F1`;
-- confusion matrix;
-- latency;
-- имя выбранной финальной модели.
+- checkpoint базовой модели;
+- LoRA parameters: `rank`, `alpha`, learning rate, число train steps, resolution;
+- размеры `seed train`, `validation`, `test`, `synthetic train`;
+- split manifests;
+- train loss и validation denoising loss;
+- метрики качества генерации: `CLIPScore`, `CLIP-KID proxy`, `Diversity`, `Duplicate rate`, `Technical image score`, `Latency`;
+- сгенерированные изображения для одинаковых prompts и seeds;
+- путь к сохранённому LoRA adapter.
 
 ### Где хранятся артефакты
 
-- лог экспериментов: `lab3/artifacts/experiments/experiment_log.jsonl`
-- итоговая сводка: `lab3/artifacts/lab3_summary.json`
-- ошибки лучшей модели: `lab3/artifacts/experiments/best_model_errors.json`
-- финальная модель: `lab3/artifacts/models/final_caption_router_model.npz`
-- метаданные модели: `lab3/artifacts/models/final_caption_router_model_meta.json`
+- итоговая сводка: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/summary.json`
+- сравнение моделей: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/comparison.json`
+- отчёт эксперимента: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/lora_ab_report.md`
+- split manifests: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/manifests/`
+- графики и generated samples: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/eval/`
+- LoRA adapters: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/runs/*/adapters/`
 
 ## Шаг 4. Проведение экспериментов
 
-Были проведены три эксперимента.
+Были проведены два основных эксперимента.
 
-| Эксперимент | Признаки / модель | Val macro F1 | Test macro F1 | Test accuracy | Latency |
-| --- | --- | ---: | ---: | ---: | ---: |
-| `baseline_word_unigram` | word unigram TF-IDF + softmax | `0.9308` | `0.5110` | `0.6429` | `0.0491 ms` |
-| `word_bigram_plus_features` | word unigram+bigram TF-IDF + extra features | `0.9222` | `1.0000` | `1.0000` | `0.0987 ms` |
-| `char_ngram_balanced` | char n-gram TF-IDF + extra features + class weights | `1.0000` | `0.9222` | `0.9286` | `0.1294 ms` |
+| Эксперимент | Train dataset | Base model | LoRA | CLIPScore | CLIP-KID proxy | Diversity | Technical score | Latency |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `seed_only` | `48` real seed train | `segmind/tiny-sd` | `rank=4`, `alpha=4` | `0.269170` | `0.00051785` | `0.426146` | `0.7461` | `0.3865 s` |
+| `seed_plus_synthetic` | `48` real seed train + `50` synthetic train | `segmind/tiny-sd` | `rank=4`, `alpha=4` | `0.271936` | `0.00051403` | `0.437324` | `0.7358` | `0.3885 s` |
 
-**График качества на validation**
-![Lab 3 validation macro F1](lab3/artifacts/plots/lab3_validation_macro_f1.png)
+**График сравнения метрик**
+![LoRA metric comparison](lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/eval/metric_comparison.png)
 
-**График качества на test**
-![Lab 3 test macro F1](lab3/artifacts/plots/lab3_test_macro_f1.png)
+**Preview генераций A/B**
+![LoRA A/B preview grid](lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/eval/ab_preview_grid.png)
 
 ### Интерпретация результатов
 
-- baseline переобучается на более простые паттерны и хуже переносится на test;
-- добавление bigram и простых дополнительных признаков резко улучшает качество;
-- char n-gram модель с class weights показывает лучший результат именно на validation, а значит по правилам честного model selection она и выбирается как финальная.
+- `seed_plus_synthetic` немного улучшил `CLIPScore`, то есть соответствие картинки тексту стало чуть лучше;
+- `CLIP-KID proxy` стал немного ниже, то есть распределение generated images стало чуть ближе к real test images в CLIP embedding space;
+- `Diversity score` вырос, то есть синтетическое расширение не привело к коллапсу в одинаковые картинки;
+- `Duplicate rate` остался `0.0` в обоих вариантах;
+- `Technical image score` немного снизился, это компромисс: часть сгенерированных примеров могла быть шумной;
+- latency почти не изменилась, потому что inference pipeline и число diffusion steps одинаковые.
 
-Важно: хотя `word_bigram_plus_features` показал идеальный результат на test, финальная модель не должна выбираться по test-метрике, иначе это уже будет подстройка под тест.
+Важно: оба варианта генерировали изображения на одинаковых prompts и с одинаковыми seeds, поэтому сравнение A/B не смешивает эффект модели с эффектом случайности.
 
 ## Шаг 5. Анализ ошибок
 
-Для финальной модели `char_ngram_balanced` был проведён анализ ошибок.
+Для лучшего варианта `seed_plus_synthetic` был проведён анализ ошибок и компромиссов по метрикам генерации.
 
-### Матрица ошибок
+### Диаграммы ошибок и сравнения
 
-![Lab 3 confusion matrix](lab3/artifacts/plots/lab3_confusion_matrix.png)
+![LoRA metric comparison](lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/eval/metric_comparison.png)
 
-### Разбор ошибок по истинному классу
-
-![Lab 3 error breakdown](lab3/artifacts/plots/lab3_error_breakdown.png)
+![LoRA A/B preview grid](lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/eval/ab_preview_grid.png)
 
 ### Найденные слабые места
 
-На тестовой выборке финальная модель ошиблась на одном примере:
+Найденные слабые места:
 
-- caption: `farm tractor is moving on the field , cultivating land`
-- истинный класс: `animals_nature`
-- предсказанный класс: `people_entertainment`
+- `Technical image score` у `seed_plus_synthetic` немного ниже: `0.7358` против `0.7461` у `seed_only`;
+- синтетических примеров пока только `50`, поэтому вывод нельзя считать статистически сильным;
+- `CLIP-KID proxy` считается по CLIP embeddings, а не по классическому Inception KID, поэтому метрика полезна для локального сравнения, но не является полноценной заменой большой benchmark-оценки;
+- `segmind/tiny-sd` выбран как лёгкая локальная модель, поэтому абсолютное качество изображений ниже, чем у крупных Stable Diffusion checkpoints.
 
-Причина ошибки:
+Причина:
 
-- подпись относится к сельскохозяйственной сцене и находится на границе между классами `animals_nature` и `places_objects`;
-- в caption нет явного животного объекта, поэтому weak label и сама модель сталкиваются с семантически неоднозначным случаем;
-- сэмпл класса `sports` и вообще общий размер выборки малы, поэтому модель учится на ограниченном количестве паттернов.
+- synthetic train добавляет разнообразие и улучшает validation denoising loss, но часть синтетических изображений может быть технически слабее реальных seed images;
+- короткий LoRA-прогон на `60` steps нужен для лабораторной демонстрации, но для более строгого вывода нужно больше train steps и больше eval prompts;
+- маленькая base model быстрее запускается на локальном RTX 3080, но ограничивает максимальное качество генерации.
 
 ### Что можно улучшить дальше
 
-- увеличить обучающий сэмпл хотя бы до нескольких тысяч caption;
-- перейти от weak labeling к ручной валидации части train/val/test;
-- использовать joint word+char TF-IDF;
-- добавить image-side признаки через предобученный encoder, чтобы задача стала по-настоящему мультимодальной;
-- заменить линейную модель на компактный transformer encoder, если вырастут требования к качеству.
+- увеличить seed dataset хотя бы до нескольких сотен или тысяч image-caption пар;
+- сгенерировать больше synthetic pairs и сильнее отфильтровать их по CLIPScore / aesthetic / blur score;
+- увеличить число LoRA train steps;
+- попробовать более сильный checkpoint, например Stable Diffusion 1.5, если хватает GPU-памяти и времени;
+- добавить ручной просмотр части ошибок и плохих synthetic samples.
 
 ## Шаг 6. Выбор финальной модели
 
@@ -925,86 +994,98 @@ Diffusion-модель может генерировать очень похож
 
 Финальной выбрана модель:
 
-- `char_ngram_balanced`
+- `seed_plus_synthetic` LoRA adapter
 
 Обоснование выбора:
 
-- лучшая `validation`-метрика среди всех проведённых экспериментов;
-- устойчивость к дисбалансу классов за счёт `class_weight=balanced`;
-- очень низкий inference latency даже на CPU;
-- модель компактна и подходит для встроенного inference-модуля.
+- лучший `validation denoising loss`: `0.072137` против `0.237112` у seed-only baseline;
+- немного лучший `CLIPScore`: `0.271936` против `0.269170`;
+- немного лучший `CLIP-KID proxy`: `0.00051403` против `0.00051785`;
+- более высокий `Diversity score`: `0.437324` против `0.426146`;
+- latency почти не изменилась относительно baseline;
+- LoRA adapter компактнее полного checkpoint и лучше подходит для хранения/развёртывания.
 
 ### Финальные метрики
 
 На validation:
 
-- `accuracy`: `1.0000`
-- `macro F1`: `1.0000`
+- `validation denoising loss`: `0.072137`
 
-На test:
+На test prompts / generated samples:
 
-- `accuracy`: `0.9286`
-- `macro F1`: `0.9222`
+- `CLIPScore`: `0.271936`
+- `CLIP-KID proxy`: `0.00051403`
+- `Diversity score`: `0.437324`
+- `Duplicate rate`: `0.0`
+- `Technical image score`: `0.7358`
 
 Нефункциональные свойства:
 
-- средний latency: `0.1294 ms` на один caption;
-- размер файла модели `final_caption_router_model.npz`: около `8 KB`;
-- формат хранения подходит для загрузки в inference-модуль backend-сервиса.
+- средний latency генерации: `0.3885 s` на один sample в локальном коротком прогоне;
+- формат финального артефакта: LoRA adapter `pytorch_lora_weights.safetensors`;
+- путь к adapter: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/runs/seed_plus_synthetic/adapters/`;
+- adapter можно подключать поверх базового checkpoint `segmind/tiny-sd`.
 
 ### Компромиссы
 
-- baseline быстрее, но заметно хуже по качеству на test;
-- `word_bigram_plus_features` показал отличный test, но уступил по validation, поэтому его не стоит выбирать как финальный вариант;
-- `char_ngram_balanced` немного медленнее, но всё ещё очень быстрая модель и лучше соответствует корректной стратегии выбора модели.
+- `seed_only` имеет чуть выше technical image score, но хуже по CLIPScore, diversity и validation denoising loss;
+- `seed_plus_synthetic` выбирается как финальный вариант, потому что лучше проверяет идею проекта о пользе синтетического расширения;
+- `segmind/tiny-sd` легче и быстрее для локального эксперимента, но по качеству слабее крупных Stable Diffusion моделей;
+- короткий прогон на `60` steps подходит для лабораторной демонстрации, но для production-вывода нужно больше данных и более длинное обучение.
 
 ## Ответы на вопросы для самопроверки
 
 ### Как Вы убедились, что baseline действительно простой, но не слишком плохой?
 
-- baseline использует только word unigram TF-IDF и линейную softmax regression;
-- он быстро обучается и считается интерпретируемым;
-- при этом он показывает ненулевое качество и служит честной нижней границей.
+- baseline `LoRA A` использует тот же base checkpoint и те же гиперпараметры, что и улучшенный вариант;
+- он обучается только на real seed train, без synthetic data;
+- поэтому он является честной нижней границей для проверки вопроса: помогает ли synthetic dataset.
 
 ### Как Вы обрабатывали дисбаланс классов, если он был?
 
-- дисбаланс виден уже в распределении классов: `sports` представлен слабее остальных;
-- в финальном эксперименте использовались `class weights`;
-- сравнение с baseline показало, что это улучшает устойчивость модели на редких классах.
+- в текущем LoRA A/B-эксперименте нет классической классификации по классам, поэтому `class weights` не используются;
+- вместо этого контролируется баланс источников данных: real seed train отдельно, synthetic train отдельно;
+- synthetic data добавляется только в train, чтобы не загрязнять validation/test.
 
 ### Какие эксперименты оказались наиболее полезными, а какие – нет? Почему?
 
-- наиболее полезными оказались `word_bigram_plus_features` и `char_ngram_balanced`, потому что они лучше ловят контекст и короткие шаблоны caption;
-- наименее полезным оказался baseline, так как он хуже переносится на test и путает редкие классы.
+- наиболее полезным оказался эксперимент `seed_plus_synthetic`, потому что он дал лучший CLIPScore, CLIP-KID proxy, diversity и validation denoising loss;
+- `seed_only` полезен как контрольный baseline;
+- proxy-прогон был полезен только как smoke test пайплайна, но финальным доказательством считается прогон с настоящими seed images.
 
 ### Как Вы анализировали ошибки? Какие инструменты использовали?
 
-- использовались confusion matrix;
-- bar chart по ошибкам;
-- JSON-файл с примерами ошибочных caption;
-- анализ выполнялся по сохранённому артефакту `best_model_errors.json`.
+- использовались график сравнения метрик, A/B preview grid, CLIPScore, CLIP-KID proxy, diversity, duplicate rate, technical image score и latency;
+- анализ выполнялся по артефактам `comparison.json`, `summary.json`, `metrics.json` и generated samples;
+- отдельно проверялся компромисс: `seed_plus_synthetic` лучше по семантике/разнообразию, но чуть хуже по technical image score.
 
 ### Что было самым сложным при настройке модели и как Вы это преодолели?
 
-- самым сложным было избежать тривиального leakage через placeholder-токены;
-- для этого в признаках были замаскированы прямые подсказки вроде `person`, `actor`, `sports_team`.
+- самым сложным было перейти от proxy-режима к настоящему image-caption dataset с реальными картинками;
+- для этого был добавлен скрипт `prepare_seed_dataset.py`, который скачивает dataset, сохраняет изображения и формирует `seed_manifest.csv`;
+- вторым сложным местом была локальная GPU-настройка LoRA/CLIP pipeline, поэтому выбран лёгкий checkpoint `segmind/tiny-sd`.
 
 ### Как Вы проверили, что модель не переобучилась на валидационную выборку?
 
-- финальная модель выбиралась по validation, а не по test;
-- test использовался только для финальной независимой оценки;
-- сравнивались несколько моделей с разной предобработкой и типом признаков.
+- `LoRA B` выбиралась по validation denoising loss и метрикам генерации, а не по ручной подгонке к одному test prompt;
+- prompts и random seeds были одинаковыми для A/B;
+- synthetic data не попадала в validation/test, поэтому оценка не подглядывает в расширенный train.
 
 ### Если бы у Вас было больше времени, что Вы улучшили бы в первую очередь?
 
-- увеличил бы объём данных;
-- добавил бы ручную разметку части caption;
-- расширил бы модель до мультимодальной версии с image encoder.
+- увеличил бы seed dataset;
+- сгенерировал бы больше synthetic pairs;
+- сделал бы более длинное LoRA-обучение;
+- попробовал бы более сильный Stable Diffusion checkpoint;
+- добавил бы ручную фильтрацию плохих synthetic images.
 
 ## Источники для ЛР3
 
 - [Conceptual Captions Dataset Card](https://huggingface.co/datasets/kdjfjdfj689/conceptual_captions)
 - [Conceptual Captions GitHub](https://github.com/google-research-datasets/conceptual-captions)
+- [pasindu/google_conceptual_captions_20000](https://huggingface.co/datasets/pasindu/google_conceptual_captions_20000)
+- [Diffusers documentation](https://huggingface.co/docs/diffusers)
+- [PEFT LoRA documentation](https://huggingface.co/docs/peft/conceptual_guides/lora)
 
 # Лабораторная работа №4
 
@@ -1016,20 +1097,21 @@ Diffusion-модель может генерировать очень похож
 
 ## Шаг 1. Разработка инференс-модуля
 
-В рамках ЛР4 разработан отдельный микросервис предсказаний на основе финальной модели из ЛР3.
+В рамках ЛР4 разработан отдельный FastAPI-микросервис для демонстрации runtime-части системы: запросы, история, мониторинг, доступ к synthetic dataset metadata и проверка, что ML-компоненты можно запускать в контейнерном окружении. После уточнения ЛР3 целевой финальный артефакт проекта — LoRA adapter `seed_plus_synthetic`, а лёгкий caption-router endpoint оставлен как demo serving-компонент для быстрых запросов и мониторинга без загрузки тяжёлой diffusion-модели в контейнер.
 
 ### Что реализовано
 
 - `FastAPI`-сервис в папке `inference_service/`
-- загрузка финальной модели из `lab3/artifacts/models/final_caption_router_model.npz`
-- загрузка метаданных модели из `lab3/artifacts/models/final_caption_router_model_meta.json`
+- demo endpoint с лёгкой caption-router моделью из `lab3/artifacts/models/final_caption_router_model.npz`
+- просмотр synthetic dataset runs/samples, синхронизированных с PostgreSQL и MinIO
+- целевые LoRA-артефакты ЛР3 сохранены отдельно в `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/`
 - endpoint `POST /predict`
 - endpoint `GET /model/info`
 - endpoint `GET /history`
 
 ### Назначение инференс-модуля
 
-Финальная модель ЛР3 классифицирует caption по доменным корзинам:
+Demo-модель `POST /predict` классифицирует caption по доменным корзинам:
 
 - `sports`
 - `people_entertainment`
@@ -1049,6 +1131,7 @@ Diffusion-модель может генерировать очень похож
 - `frontend` — пользовательский интерфейс;
 - `inference-service` — предсказания;
 - `postgres` — хранение истории запросов и предсказаний;
+- `minio` — S3-compatible storage для diffusion dataset artifacts;
 - `lab3 artifacts` — интегрированы как experiment registry и model registry;
 - `prometheus` — сбор метрик мониторинга.
 
@@ -1133,6 +1216,7 @@ Diffusion-модель может генерировать очень похож
 - переменные окружения;
 - network-взаимодействие;
 - volumes для PostgreSQL и Prometheus;
+- volume для MinIO object storage;
 - healthcheck для БД.
 
 ### Команда запуска
@@ -1155,9 +1239,11 @@ docker compose up --build
 Для демонстрации подготовлены:
 
 - тестовые запросы: `demo/sample_requests.json`
+- демонстрационный synthetic dataset: `synthetic_dataset/synthetic_manifest.csv`
 - веб-интерфейс: `frontend/`
 - инференс-сервис: `inference_service/`
-- графики и артефакты ЛР3: `lab3/artifacts/`
+- целевые LoRA-артефакты ЛР3: `lora_experiment/artifacts/lora_ab_cc_seed_60steps_clip/`
+- demo caption-router артефакты для ЛР4: `lab3/artifacts/`
 
 ### Что показывать на демонстрации
 

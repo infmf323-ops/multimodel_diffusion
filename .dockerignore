@@ -1,4 +1,9 @@
 .git
+.venv
+.venv-*
+.venv-diffusion
+.tmp
+hf_cache
 __pycache__
 *.pyc
 *.pyo
@@ -6,3 +11,4 @@ __pycache__
 *.log
 postgres_data
 prometheus_data
+minio_data

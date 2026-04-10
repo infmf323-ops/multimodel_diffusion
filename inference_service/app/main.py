@@ -10,7 +10,14 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
-from .database import fetch_recent_predictions, healthcheck_db, init_db, insert_prediction
+from .database import (
+    fetch_recent_predictions,
+    fetch_synthetic_dataset_runs,
+    fetch_synthetic_dataset_samples,
+    healthcheck_db,
+    init_db,
+    insert_prediction,
+)
 from .model_runtime import CaptionRouterModel
 
 
@@ -142,6 +149,16 @@ def predict(payload: PredictRequest):
 @app.get("/history")
 def history(limit: int = Query(default=20, ge=1, le=100)):
     return {"items": fetch_recent_predictions(limit)}
+
+
+@app.get("/synthetic-dataset/runs")
+def synthetic_dataset_runs(limit: int = Query(default=20, ge=1, le=100)):
+    return {"items": fetch_synthetic_dataset_runs(limit)}
+
+
+@app.get("/synthetic-dataset/samples")
+def synthetic_dataset_samples(limit: int = Query(default=20, ge=1, le=100)):
+    return {"items": fetch_synthetic_dataset_samples(limit)}
 
 
 @app.get("/model/info")

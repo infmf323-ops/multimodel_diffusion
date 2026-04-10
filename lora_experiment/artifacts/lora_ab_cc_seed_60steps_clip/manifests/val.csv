@@ -1,0 +1,9 @@
+id,prompt,image_path,resolved_image_path,domain_tag,source_type,split
+cc_seed_0001,a very typical bus station,images/cc_seed_0001.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0001.jpg,,,val
+cc_seed_0040,emergency services were called after a car smashed through a set of traffic lights,images/cc_seed_0040.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0040.jpg,,,val
+cc_seed_0046,bulldozer on a building site,images/cc_seed_0046.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0046.jpg,,,val
+cc_seed_0053,i love the colours of her clothes .,images/cc_seed_0053.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0053.jpg,,,val
+cc_seed_0015,portrait of a smiling woman stroking her dog lying on couch,images/cc_seed_0015.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0015.jpg,,,val
+cc_seed_0009,celebrities start decorating for the christmas season lifestyle,images/cc_seed_0009.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0009.jpg,,,val
+cc_seed_0029,concept plug - in hybrid car on display,images/cc_seed_0029.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0029.jpg,,,val
+cc_seed_0028,football player celebrates scoring for football team against football team in the final,images/cc_seed_0028.jpg,lora_experiment\seed_dataset\google_conceptual_captions_20000\images\cc_seed_0028.jpg,,,val
