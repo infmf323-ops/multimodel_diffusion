@@ -1,6 +1,6 @@
-from http.server import SimpleHTTPRequestHandler
-from socketserver import TCPServer
 import os
+from http.server import SimpleHTTPRequestHandler
+from socketserver import ThreadingMixIn, TCPServer
 
 
 PORT = int(os.getenv("PORT", "3000"))
@@ -12,6 +12,10 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
 
-with TCPServer(("", PORT), Handler) as httpd:
-    print(f"Frontend is serving on port {PORT}")
+class ThreadingHTTPServer(ThreadingMixIn, TCPServer):
+    daemon_threads = True
+
+
+with ThreadingHTTPServer(("0.0.0.0", PORT), Handler) as httpd:
+    print(f"Frontend is serving on 0.0.0.0:{PORT} (cwd={DIRECTORY})")
     httpd.serve_forever()

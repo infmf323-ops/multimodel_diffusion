@@ -2,13 +2,16 @@ import base64
 import json
 import logging
 import os
+import statistics
 import time
 import uuid
+from itertools import combinations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from PIL import Image, ImageFilter, ImageStat
 from pydantic import BaseModel, Field
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
@@ -94,6 +97,8 @@ class GenerationJobRequest(BaseModel):
     topic: str = Field(..., min_length=2, max_length=120)
     count: int = Field(default=100, ge=1, le=1000)
     preview_limit: int = Field(default=5, ge=0, le=20)
+    # Сколько строк вернуть в поле items ответа (0 = только превью-картинки, без таблицы метаданных)
+    response_items_limit: int = Field(default=32, ge=0, le=500)
     negative_prompt: str = Field(
         default="low quality, blurry, distorted, watermark, text artifacts",
         max_length=500,
@@ -430,15 +435,141 @@ def generate_batch(payload: BatchGenerateRequest):
     }
 
 
-def generation_job_response(job):
-    if not job:
-        raise HTTPException(status_code=404, detail="Generation job not found.")
-    items = fetch_generations_by_batch(job["job_id"], limit=max(job["count_requested"], job["preview_limit"], 1))
+def _preview_items_from_rows(rows: list[dict], preview_limit: int) -> list[dict]:
     preview_items = []
-    for item in items[: job["preview_limit"]]:
+    for item in rows[:preview_limit]:
         preview_item = dict(item)
         preview_item["preview_url"] = f"/generations/{item['id']}/image"
         preview_items.append(preview_item)
+    return preview_items
+
+
+def _average_hash(image: Image.Image, hash_size: int = 8) -> list[int]:
+    gray = image.convert("L").resize((hash_size, hash_size))
+    pixels = list(gray.getdata())
+    avg = sum(pixels) / len(pixels)
+    return [1 if pixel >= avg else 0 for pixel in pixels]
+
+
+def _technical_quality_score(image_path: Path) -> float | None:
+    try:
+        with Image.open(image_path) as image:
+            gray = image.convert("L")
+            hsv = image.convert("HSV")
+            gray_stat = ImageStat.Stat(gray)
+            hsv_stat = ImageStat.Stat(hsv)
+            edge_stat = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES))
+
+            contrast = min(float(gray_stat.stddev[0]) / 64.0, 1.0)
+            saturation = min(float(hsv_stat.mean[1]) / 255.0, 1.0)
+            edge_density = min(float(edge_stat.mean[0]) / 42.0, 1.0)
+            brightness = float(gray_stat.mean[0]) / 255.0
+            brightness_penalty = abs(brightness - 0.55) / 0.55
+
+            score = 0.4 * contrast + 0.35 * saturation + 0.25 * edge_density
+            score = max(0.0, min(1.0, score * (1.0 - 0.3 * brightness_penalty)))
+            return round(score, 4)
+    except Exception:
+        return None
+
+
+def _dataset_metrics_from_rows(job: dict, rows: list[dict]) -> dict:
+    total_rows = len(rows)
+    metrics = {
+        "sample_count": total_rows,
+        "metrics_scope": "full_batch" if job["count_generated"] <= 1000 else "sampled",
+        "avg_latency_ms": None,
+        "min_latency_ms": None,
+        "max_latency_ms": None,
+        "images_per_minute": None,
+        "avg_file_size_kb": None,
+        "avg_quality_score": None,
+        "high_quality_share": None,
+        "prompt_uniqueness_ratio": None,
+        "near_duplicate_rate": None,
+    }
+    if total_rows == 0:
+        return metrics
+
+    latencies = [float(item["latency_ms"]) for item in rows]
+    metrics["avg_latency_ms"] = round(statistics.mean(latencies), 2)
+    metrics["min_latency_ms"] = round(min(latencies), 2)
+    metrics["max_latency_ms"] = round(max(latencies), 2)
+    total_generation_time_s = sum(latencies) / 1000.0
+    if total_generation_time_s > 0:
+        metrics["images_per_minute"] = round((total_rows / total_generation_time_s) * 60.0, 2)
+    metrics["prompt_uniqueness_ratio"] = round(len({item["prompt"] for item in rows}) / total_rows, 4)
+
+    file_sizes_kb = []
+    quality_scores = []
+    hashes = []
+    for row in rows:
+        output_path = Path(row["output_path"])
+        if not output_path.exists():
+            continue
+        file_sizes_kb.append(round(output_path.stat().st_size / 1024.0, 3))
+        quality_score = _technical_quality_score(output_path)
+        if quality_score is not None:
+            quality_scores.append(quality_score)
+        try:
+            with Image.open(output_path) as image:
+                hashes.append(_average_hash(image))
+        except Exception:
+            pass
+
+    if file_sizes_kb:
+        metrics["avg_file_size_kb"] = round(statistics.mean(file_sizes_kb), 2)
+    if quality_scores:
+        metrics["avg_quality_score"] = round(statistics.mean(quality_scores), 4)
+        metrics["high_quality_share"] = round(
+            sum(1 for score in quality_scores if score >= 0.6) / len(quality_scores), 4
+        )
+
+    duplicate_pairs = 0
+    total_pairs = 0
+    for left, right in combinations(hashes, 2):
+        total_pairs += 1
+        distance = sum(1 for a, b in zip(left, right) if a != b)
+        if distance <= 5:
+            duplicate_pairs += 1
+    metrics["near_duplicate_rate"] = round(duplicate_pairs / total_pairs, 4) if total_pairs else 0.0
+    return metrics
+
+
+def _items_summary(job: dict, items: list[dict]) -> dict:
+    total = job["count_generated"]
+    n = len(items)
+    summary = {
+        "items_total_in_batch": total,
+        "items_returned": n,
+        "items_truncated": total > n,
+        "manifest_complete": bool(job.get("manifest_path")),
+    }
+    if items:
+        latencies = [float(i["latency_ms"]) for i in items]
+        summary["sample_avg_latency_ms"] = round(sum(latencies) / len(latencies), 4)
+        summary["first_generation_id"] = items[0]["id"]
+        summary["last_generation_id"] = items[-1]["id"]
+    return summary
+
+
+def generation_job_response(job, items_limit: int = 48):
+    """items_limit: max DB rows returned for UI (capped). Use 0 to skip metadata rows (previews only)."""
+    if not job:
+        raise HTTPException(status_code=404, detail="Generation job not found.")
+    pl = max(int(job["preview_limit"] or 0), 0)
+    metrics_rows = fetch_generations_by_batch(job["job_id"], limit=1000)
+    dataset_metrics = _dataset_metrics_from_rows(job, metrics_rows)
+    if items_limit <= 0:
+        fetch_limit = max(pl, 1)
+        rows = fetch_generations_by_batch(job["job_id"], limit=min(fetch_limit, 500))
+        preview_items = _preview_items_from_rows(rows, pl)
+        table_items: list[dict] = []
+    else:
+        fetch_limit = min(max(pl, items_limit), 500)
+        rows = fetch_generations_by_batch(job["job_id"], limit=fetch_limit)
+        preview_items = _preview_items_from_rows(rows, pl)
+        table_items = rows
     return {
         **job,
         "progress": {
@@ -448,8 +579,13 @@ def generation_job_response(job):
             if job["count_requested"]
             else 0,
         },
-        "items": items,
+        "items": table_items,
         "preview_items": preview_items,
+        "dataset_metrics": dataset_metrics,
+        "items_summary": {
+            **(_items_summary(job, rows)),
+            "metadata_table_rows": len(table_items),
+        },
         "manifest_url": f"/generation-jobs/{job['job_id']}/manifest" if job["manifest_path"] else None,
         "manifest_object_uri": job["manifest_object_uri"],
     }
@@ -479,17 +615,28 @@ def create_job(payload: GenerationJobRequest):
             "created_by": "webui",
         },
     )
-    return generation_job_response(job)
+    return generation_job_response(job, items_limit=payload.response_items_limit)
 
 
 @app.get("/generation-jobs")
-def generation_jobs(limit: int = Query(default=20, ge=1, le=100)):
-    return {"items": [generation_job_response(job) for job in fetch_recent_generation_jobs(limit)]}
+def generation_jobs(
+    limit: int = Query(default=20, ge=1, le=100),
+    items_limit: int = Query(default=12, ge=0, le=500),
+):
+    return {
+        "items": [
+            generation_job_response(job, items_limit=items_limit)
+            for job in fetch_recent_generation_jobs(limit)
+        ]
+    }
 
 
 @app.get("/generation-jobs/{job_id}")
-def generation_job_status(job_id: str):
-    return generation_job_response(fetch_generation_job(job_id))
+def generation_job_status(
+    job_id: str,
+    items_limit: int = Query(default=48, ge=0, le=500),
+):
+    return generation_job_response(fetch_generation_job(job_id), items_limit=items_limit)
 
 
 @app.get("/generation-jobs/{job_id}/manifest")

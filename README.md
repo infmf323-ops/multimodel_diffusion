@@ -18,6 +18,13 @@
 docker compose up --build
 ```
 
+**Если `http://localhost:3000` не открывается (connection refused / страница недоступна):**
+
+1. Дождитесь окончания сборки и проверьте контейнеры: `docker compose ps` — у `frontend`, `inference-service`, `minio`, `postgres` статус **running**, у inference после прогрева — **healthy**.
+2. Первый старт inference может занять **несколько минут** (скачивание `segmind/tiny-sd` в volume); UI стартует только после **healthy** у `inference-service`.
+3. Ошибка вида *could not select device driver* при `docker compose up`: в `docker-compose.yml` строки **`gpus: all`** должны быть закомментированы (так и задумано для запуска без NVIDIA); GPU при необходимости раскомментируйте локально.
+4. Смотрите логи: `docker compose logs -f inference-service minio frontend`.
+
 После запуска сервисы доступны по адресам:
 
 - UI: `http://localhost:3000`
@@ -52,7 +59,7 @@ curl -X POST "http://localhost:8000/generate" \
 
 ### Асинхронная batch-догенерация недостающей темы датасета
 
-Если в исходном датасете мало изображений определённого типа объектов, можно указать тему и число изображений. API создаёт durable job в PostgreSQL, а отдельный `generation-worker` генерирует изображения в фоне. Это ближе к архитектуре ЛР1-ЛР2: UI не держит долгий HTTP-запрос, а периодически читает статус job. Лимит `count` — до `1000`; в UI показываются первые `5` preview, а metadata сохраняется для всех изображений.
+Если в исходном датасете мало изображений определённого типа объектов, можно указать тему и число изображений. API создаёт durable job в PostgreSQL, а отдельный `generation-worker` генерирует изображения в фоне. Это ближе к архитектуре ЛР1-ЛР2: UI не держит долгий HTTP-запрос, а периодически читает статус job. Лимит `count` — до `1000`; в UI задаётся число превью и лимит строк метаданных в ответе API; полный список всех генераций — в CSV manifest. В теле `POST /generation-jobs` можно задать `response_items_limit` (сколько строк вернуть в поле `items` при создании job и в последующих ответах по умолчанию — **32**, максимум 500; **0** — без таблицы метаданных, только превью). Запрос `GET /generation-jobs/{job_id}?items_limit=N` переопределяет лимит при опросе; в ответе есть `items_summary` с признаком усечения.
 
 ```bash
 curl -X POST "http://localhost:8000/generation-jobs" \
@@ -125,6 +132,7 @@ curl "http://localhost:8000/synthetic-dataset/samples?limit=5"
 - ЛР2, обновлённая архитектура: [lr2_architecture_diagram.png](lr2_architecture_diagram.png)
 - ЛР2, обновлённый workflow: [lr2_workflow_diagram.png](lr2_workflow_diagram.png)
 - ЛР4, финальная demo-архитектура: [lr4_deployment_diagram.png](lr4_deployment_diagram.png)
+- ЛР4, краткий отчёт и чеклист демонстрации: [docs/LR4.md](docs/LR4.md)
 
 ## Демонстрационный синтетический датасет
 
@@ -1445,7 +1453,7 @@ docker compose up --build
 2. Открытие UI на `localhost:3000`
 3. Отправка prompt в форму single-image generation
 4. Получение изображения, сгенерированного через `segmind/tiny-sd`
-5. Batch-догенерация: ввод темы `мебель`, количества изображений, создание background job, просмотр статуса, первых 5 preview и metadata всех сгенерированных элементов с `job_id`/`generation_id`
+5. Batch-догенерация: ввод темы `мебель`, количества изображений, создание background job, просмотр статуса, сетка превью (настраиваемое K), краткая таблица метаданных и скачивание manifest CSV; при больших N полный перечень — только в manifest, не в UI-таблице
 6. Просмотр истории генераций через `GET /generations/history`
 7. Дополнительно: отправка caption в demo endpoint `/predict`
 8. Просмотр `experiments/summary`

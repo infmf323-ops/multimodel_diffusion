@@ -4,29 +4,36 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Multimodal Diffusion Dataset Service</title>
-  <link rel="stylesheet" href="styles.css?v=dataset-20260411">
+  <link rel="stylesheet" href="styles.css?v=lr4-ui-20260411b">
 </head>
 <body>
   <main class="page">
     <section class="hero">
-      <p class="eyebrow">Lab 4 Demo</p>
+      <p class="eyebrow">LR4 Demo</p>
       <h1>Multimodal Diffusion Dataset Service</h1>
       <p class="lead">
-        Контейнерный ML-сервис для генерации и анализа синтетического мультимодального датасета.
-        Базовая diffusion-модель <code>segmind/tiny-sd</code> используется для одиночной генерации и batch job по теме;
-        рядом доступны история запросов, PostgreSQL, MinIO и Prometheus monitoring.
+        Контейнерный ML-сервис для генерации синтетического мультимодального датасета.
+        В стенд уже интегрированы интерфейс, inference API, background worker, PostgreSQL,
+        MinIO, Prometheus и MLflow. Для демонстрации доступны одиночная генерация,
+        batch job по теме, история запросов и live-мониторинг.
       </p>
       <div class="badges">
         <span id="health-badge" class="badge muted">Проверка health...</span>
         <span class="badge">Frontend: :3000</span>
         <span class="badge">API: :8000</span>
         <span class="badge">Prometheus: :9090</span>
+        <span class="badge">MLflow: :5000</span>
+        <span class="badge">MinIO: :9001</span>
       </div>
     </section>
 
     <section class="grid">
       <article class="card">
         <h2>Генерация одного изображения</h2>
+        <p class="hint">
+          Онлайн-инференс микросервиса: отправляем prompt в <code>/generate</code>,
+          получаем PNG, seed, latency и путь к артефакту.
+        </p>
         <label for="prompt-input">Prompt</label>
         <textarea id="prompt-input" rows="5">a cozy modern living room with a fireplace and warm evening light</textarea>
         <button id="generate-btn">Сгенерировать изображение</button>
@@ -36,9 +43,11 @@
       <article class="card">
         <h2>Догенерация по теме</h2>
         <p class="hint">
-          Для покрытия дефицитного класса: вводишь тему, например <code>мебель</code>, и количество до 1000 изображений. Worker генерирует в фоне, UI показывает статус, первые 5 preview и manifest.
+          Основной сценарий проекта: указываешь недостающий тип объектов, например <code>мебель</code>,
+          и размер партии до <strong>1000</strong> изображений. В фоне создаётся
+          <code>generation-job</code>, UI показывает статус, первые preview и manifest CSV.
         </p>
-        <label for="topic-input">Тема / недостающий тип объектов</label>
+        <label for="topic-input">Тема / дефицитный класс</label>
         <input id="topic-input" type="text" value="мебель" maxlength="120">
         <label for="batch-count-input">Количество изображений</label>
         <input id="batch-count-input" type="number" value="100" min="1" max="1000">
@@ -47,11 +56,91 @@
       </article>
 
       <article class="card">
-        <h2>Demo caption-router endpoint</h2>
+        <div class="card-header">
+          <h2>Компоненты стенда</h2>
+          <button id="refresh-monitoring-btn" class="secondary">Обновить мониторинг</button>
+        </div>
+        <div class="quick-links">
+          <a href="http://localhost:3000" target="_blank" rel="noreferrer">Frontend</a>
+          <a href="http://localhost:8000/docs" target="_blank" rel="noreferrer">API Docs</a>
+          <a href="http://localhost:8000/health" target="_blank" rel="noreferrer">Health</a>
+          <a href="http://localhost:8000/metrics" target="_blank" rel="noreferrer">Metrics</a>
+          <a href="http://localhost:9090" target="_blank" rel="noreferrer">Prometheus</a>
+          <a href="http://localhost:5000" target="_blank" rel="noreferrer">MLflow</a>
+          <a href="http://localhost:9001" target="_blank" rel="noreferrer">MinIO Console</a>
+        </div>
+        <div class="component-list">
+          <div class="component-item">
+            <strong>Frontend</strong>
+            <span>Веб-интерфейс для запуска генерации и демонстрации работы сервиса.</span>
+          </div>
+          <div class="component-item">
+            <strong>Inference API</strong>
+            <span>FastAPI-сервис с endpoint'ами <code>/generate</code>, <code>/generation-jobs</code>, <code>/metrics</code>.</span>
+          </div>
+          <div class="component-item">
+            <strong>Generation Worker</strong>
+            <span>Фоновая batch-генерация для больших партий датасета.</span>
+          </div>
+          <div class="component-item">
+            <strong>PostgreSQL</strong>
+            <span>Хранение истории запросов, generation jobs и metadata артефактов.</span>
+          </div>
+          <div class="component-item">
+            <strong>MinIO</strong>
+            <span>Object storage для PNG и manifest CSV.</span>
+          </div>
+          <div class="component-item">
+            <strong>Prometheus + MLflow</strong>
+            <span>Runtime-мониторинг и experiment tracking.</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Live monitoring</h2>
+        <p class="hint">
+          Метрики для защиты ЛР4: количество обращений, состояние базы,
+          загрузка diffusion-модели и latency одиночной генерации.
+        </p>
+        <div id="monitoring-output" class="metric-grid">
+          <div class="metric-card">
+            <span class="metric-label">Загрузка...</span>
+            <strong class="metric-value">...</strong>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Вспомогательный /predict endpoint</h2>
+        <p class="hint">
+          Лёгкий классификатор caption из ЛР3. Для ЛР4 он полезен как дополнительный пример
+          инференс-микросервиса и логирования запросов.
+        </p>
         <label for="caption-input">Caption</label>
-        <textarea id="caption-input" rows="5">american football player on the field during joint training camp .</textarea>
+        <textarea id="caption-input" rows="5">american football player on the field during joint training camp.</textarea>
         <button id="predict-btn">Отправить в /predict</button>
         <pre id="prediction-output" class="output">Ожидание запроса...</pre>
+      </article>
+
+      <article class="card">
+        <h2>Что показывать на защите</h2>
+        <ol class="demo-list">
+          <li>Показать, что контейнеры подняты и UI открывается.</li>
+          <li>Запустить одиночную генерацию через <code>/generate</code>.</li>
+          <li>Создать batch job по теме через <code>/generation-jobs</code>.</li>
+          <li>Открыть manifest CSV и историю генераций.</li>
+          <li>Показать обновление <code>/metrics</code>, Prometheus и MLflow.</li>
+          <li>Открыть MinIO и показать, что PNG и manifest реально сохранены.</li>
+        </ol>
+      </article>
+
+      <article class="card full">
+        <div class="card-header">
+          <h2>Последние batch jobs</h2>
+          <button id="refresh-jobs-btn" class="secondary">Обновить</button>
+        </div>
+        <div id="jobs-output" class="table-wrap">Загрузка...</div>
       </article>
 
       <article class="card full">
@@ -72,7 +161,7 @@
 
       <article class="card full">
         <div class="card-header">
-          <h2>Experiment summary</h2>
+          <h2>Experiment summary / MLflow companion</h2>
           <button id="refresh-experiments-btn" class="secondary">Обновить</button>
         </div>
         <pre id="summary-output" class="output">Загрузка...</pre>
@@ -80,6 +169,6 @@
     </section>
   </main>
 
-  <script src="app.js?v=dataset-20260411"></script>
+  <script src="app.js?v=lr4-ui-20260411b"></script>
 </body>
 </html>

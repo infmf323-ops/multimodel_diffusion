@@ -30,11 +30,13 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    # Образ minio/minio не содержит клиента `mc`; используем HTTP health (как в официальном Dockerfile MinIO).
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
       interval: 5s
       timeout: 5s
-      retries: 20
+      retries: 30
+      start_period: 15s
 
   inference-service:
     build:
@@ -54,12 +56,25 @@ services:
       S3_ACCESS_KEY_ID: minioadmin
       S3_SECRET_ACCESS_KEY: minioadmin
       S3_PREFIX: online-generations
-    gpus: all
+    # Раскомментируйте при NVIDIA + nvidia-container-toolkit (без GPU compose часто падает целиком):
+    # gpus: all
     volumes:
       - hf_cache:/cache/huggingface
       - generation_outputs:/app/generated_outputs
     ports:
       - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 300s
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,7 +101,7 @@ services:
       S3_ACCESS_KEY_ID: minioadmin
       S3_SECRET_ACCESS_KEY: minioadmin
       S3_PREFIX: online-generations
-    gpus: all
+    # gpus: all
     volumes:
       - hf_cache:/cache/huggingface
       - generation_outputs:/app/generated_outputs
@@ -104,7 +119,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - inference-service
+      inference-service:
+        condition: service_healthy
 
   prometheus:
     build:

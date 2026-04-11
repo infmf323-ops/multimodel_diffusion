@@ -97,16 +97,15 @@ class DiffusionGenerator:
         if seed is None:
             seed = int(time.time() * 1000) % 2_147_483_647
 
-        generator = torch.Generator(device=self._device).manual_seed(seed)
-        image: Image.Image = self._pipe(
+        image, actual_steps = self._run_with_fallback(
             prompt=prompt,
-            negative_prompt=negative_prompt or None,
+            negative_prompt=negative_prompt,
+            seed=seed,
             width=width,
             height=height,
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
-            generator=generator,
-        ).images[0]
+        )
 
         image_bytes = self._to_png_bytes(image)
         output_path = self._save_image(prompt, seed, image_bytes)
@@ -120,9 +119,73 @@ class DiffusionGenerator:
             lora_adapter_path=str(self.adapter_path) if self.adapter_path else "",
             width=width,
             height=height,
-            num_inference_steps=num_inference_steps,
+            num_inference_steps=actual_steps,
             guidance_scale=guidance_scale,
         )
+
+    def _run_once(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        seed: int,
+        width: int,
+        height: int,
+        num_inference_steps: int,
+        guidance_scale: float,
+    ) -> Image.Image:
+        import torch
+
+        generator = torch.Generator(device=self._device).manual_seed(seed)
+        return self._pipe(
+            prompt=prompt,
+            negative_prompt=negative_prompt or None,
+            width=width,
+            height=height,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            generator=generator,
+        ).images[0]
+
+    def _run_with_fallback(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        seed: int,
+        width: int,
+        height: int,
+        num_inference_steps: int,
+        guidance_scale: float,
+    ) -> tuple[Image.Image, int]:
+        try:
+            image = self._run_once(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                seed=seed,
+                width=width,
+                height=height,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+            )
+            return image, num_inference_steps
+        except IndexError as exc:
+            message = str(exc).lower()
+            if "out of bounds" not in message:
+                raise
+
+            safe_steps = max(8, min(num_inference_steps - 1, 20))
+            if safe_steps == num_inference_steps:
+                raise
+
+            image = self._run_once(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                seed=seed,
+                width=width,
+                height=height,
+                num_inference_steps=safe_steps,
+                guidance_scale=guidance_scale,
+            )
+            return image, safe_steps
 
     def _save_image(self, prompt: str, seed: int, image_bytes: bytes) -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)

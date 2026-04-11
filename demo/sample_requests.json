@@ -20,6 +20,7 @@
       "topic": "furniture",
       "count": 20,
       "preview_limit": 5,
+      "response_items_limit": 24,
       "width": 320,
       "height": 320,
       "num_inference_steps": 22,

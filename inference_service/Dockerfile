@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY inference_service /app/inference_service
 COPY lab3 /app/lab3
 COPY lora_experiment /app/lora_experiment
+# Для GET /experiments/summary в контейнере (путь по умолчанию в main.py)
+COPY synthetic_dataset/parameter_experiments/summary.json /app/synthetic_dataset/parameter_experiments/summary.json
 
 RUN mkdir -p /app/generated_outputs /cache/huggingface
 
