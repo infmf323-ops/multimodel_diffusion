@@ -198,10 +198,10 @@ async function generateImage() {
       },
       body: JSON.stringify({
         prompt: promptInput.value,
-        width: 320,
-        height: 320,
-        num_inference_steps: 22,
-        guidance_scale: 7.5,
+        width: 256,
+        height: 256,
+        num_inference_steps: 12,
+        guidance_scale: 5.0,
       }),
     });
 
@@ -397,10 +397,10 @@ async function generateBatch() {
       body: JSON.stringify({
         topic: topicInput.value,
         count,
-        width: 320,
-        height: 320,
-        num_inference_steps: 22,
-        guidance_scale: 7.5,
+        width: 256,
+        height: 256,
+        num_inference_steps: 12,
+        guidance_scale: 5.0,
         preview_limit: 5,
       }),
     });
